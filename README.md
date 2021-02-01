@@ -1,7 +1,7 @@
 words-use
 ==============================
 
-A short description of the project.
+Analysis of the frequency distributions of words, first in the US at a county-level aggregation.
 
 Project Organization
 ------------
