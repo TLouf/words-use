@@ -17,7 +17,8 @@ def plot_interactive(fig, mapbox_style='stamen-toner', mapbox_zoom=10,
         margin={"r": 0, "t": 0, "l": 0, "b": 0})
     use_iframe_renderer = plotly_renderer.startswith('iframe')
     if save_path:
-        plotly.offline.plot(fig, filename=save_path, auto_open=False)
+        # Path objects are not yet supported by plotly, so first cast to str.
+        plotly.offline.plot(fig, filename=str(save_path), auto_open=False)
     if show:
         # With the 'iframe' renderer, a standalone HTML is created in a new
         # folder iframe_figures/, and the files are named according to the cell
@@ -92,7 +93,7 @@ def clusters(cell_plot_df, cluster_col,
                 'bordercolor': 'rgb(0, 0, 0)', 'borderwidth': 1})
     
     cell_plot_df[cluster_col] = (cell_plot_df[cluster_col] + 1).astype(str)
-    all_clusters = cell_plot_df[cluster_col].unique()
+    all_clusters = sorted(cell_plot_df[cluster_col].unique())
     data = []
     choropleth_dict = dict(
         showlegend=True,
@@ -109,7 +110,7 @@ def clusters(cell_plot_df, cluster_col,
         # We select a single color from the scale, and apply to this trace a
         # colorscale that keeps this color on its whole range. Then we also
         # assign `z` a constant numerical value. The cluster will thus be
-        # coloured in this colour both on the map and in the legend. 
+        # coloured in this colour both on the map and in the legend.
         c = colorscale[i]
         data.append(go.Choroplethmapbox(
             **choropleth_dict,
