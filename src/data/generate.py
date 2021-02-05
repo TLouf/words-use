@@ -7,7 +7,6 @@ strings refers to a column.
 import gzip
 import logging
 import pandas as pd
-import numpy as np
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +26,6 @@ def yield_tweets_access(tweets_files_paths, tweets_res=None, size=1e9):
         # Here get_df = lambda x: read_json_wrapper(*x).
         for file_path in tweets_files_paths:
             for chunk_start, chunk_size in chunkify(file_path, size=size):
-                print('lol')
                 yield (file_path, chunk_start, chunk_size)
     else:
         # In this case get_df = lambda x: x is to be used
@@ -37,8 +35,7 @@ def yield_tweets_access(tweets_files_paths, tweets_res=None, size=1e9):
 
 # Better to separate generators (functions with yield) and regular functions
 # (terminating with return).
-def return_json(file_path, ssh_domain=None, ssh_username=None,
-                compression='infer'):
+def return_json(file_path, compression='infer'):
     '''
     Returns a DataFrame from a local or remote json file. Not recommended for
     large data files.
@@ -47,8 +44,7 @@ def return_json(file_path, ssh_domain=None, ssh_username=None,
     return data
 
 
-def yield_json(file_path, ssh_domain=None, ssh_username=None, chunk_size=1000,
-               compression='infer'):
+def yield_json(file_path, chunk_size=1000, compression='infer'):
     '''
     Yields a JsonReader from a local or remote json file, reading it it chunks.
     This is more suitable to larger files than `return_json`, however it can't
@@ -62,7 +58,7 @@ def yield_json(file_path, ssh_domain=None, ssh_username=None, chunk_size=1000,
 
 
 
-def yield_gzip(file_path, ssh_domain=None, ssh_username=None):
+def yield_gzip(file_path):
     '''
     Yields a gzip file handler from a remote or local directory.
     '''
@@ -70,14 +66,12 @@ def yield_gzip(file_path, ssh_domain=None, ssh_username=None):
         yield unzipped_f
 
 
-def read_json_wrapper(file_path, chunk_start, chunk_size, ssh_domain=None,
-                      ssh_username=None):
+def read_json_wrapper(file_path, chunk_start, chunk_size):
     '''
     Reads a DataFrame from the json file in 'file_path', starting at the byte
     'chunk_start' and reading 'chunk_size' bytes.
     '''
-    for f in yield_gzip(file_path, ssh_domain=ssh_domain,
-                        ssh_username=ssh_username):
+    for f in yield_gzip(file_path):
         f.seek(chunk_start)
         lines = f.read(chunk_size)
         raw_tweets_df = pd.read_json(lines, lines=True)
@@ -87,15 +81,14 @@ def read_json_wrapper(file_path, chunk_start, chunk_size, ssh_domain=None,
         return raw_tweets_df
 
 
-def chunkify(file_path, size=5e8, ssh_domain=None, ssh_username=None):
+def chunkify(file_path, size=5e8):
     '''
     Generator going through a json file located in 'file_path', and yielding the
     chunk start and size of (approximate byte) size 'size'. Since we want to
     read lines of data, the function ensures that the end of the chunk
     'chunk_end' is at the end of a line.
     '''
-    for f in yield_gzip(file_path, ssh_domain=ssh_domain,
-                        ssh_username=ssh_username):
+    for f in yield_gzip(file_path):
         chunk_end = f.tell()
         while True:
             chunk_start = chunk_end
