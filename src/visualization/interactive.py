@@ -1,9 +1,13 @@
+import os
+from pathlib import Path
+import subprocess
 import IPython.display
+import numpy as np
 import plotly.graph_objects as go
 import plotly.colors
 import plotly.offline
 from shapely.geometry import MultiPoint
-
+import src.visualization.maps as map_viz
 
 def plot_interactive(fig, mapbox_style='stamen-toner', mapbox_zoom=10,
                      plotly_renderer='iframe_connected',
@@ -27,11 +31,16 @@ def plot_interactive(fig, mapbox_style='stamen-toner', mapbox_zoom=10,
         # file (so use_iframe_renderer should imply save_path), which has a
         # name we chose.
         if use_iframe_renderer:
+            pwd_path = Path(os.environ['PWD'])
+            rel_path = save_path.resolve().relative_to(pwd_path)
+            # Print the location of the file to have a clickable hyperlink to
+            # open it in a new tab from a notebook.
+            print(get_jpt_address() + 'files/' + str(rel_path))
             IPython.display.display(IPython.display.IFrame(
                 src=save_path, width=900, height=600))
         else:
             fig.show(renderer=plotly_renderer, width=900, height=600,
-                     config={'modeBarButtonsToAdd': ['zoomInMapbox', 
+                     config={'modeBarButtonsToAdd': ['zoomInMapbox',
                                                      'zoomOutMapbox']})
 
     return fig
@@ -76,34 +85,44 @@ def cells(cell_plot_df, metric_col,
     return fig
 
 
-def clusters(cell_plot_df, cluster_col,
+def clusters(geodf, cluster_data, valid_cnt,
              colorscale=None, latlon_proj='epsg:4326',
              alpha=0.8, **plot_interactive_kwargs):
     '''
     Plots an interactive choropleth map of clusters, with a clickable legend to
     show/hide clusters.
     '''
-    if colorscale is None:
-        colorscale = plotly.colors.qualitative.Dark2
+    cell_plot_df = map_viz.prep_cluster_plot(geodf, cluster_data, valid_cnt)
     geometry = cell_plot_df.to_crs(latlon_proj).geometry
     start_point = MultiPoint(geometry.centroid.values).centroid
     layout = go.Layout(
         mapbox_center={"lat": start_point.y, "lon": start_point.x},
         legend={'x': 0.02, 'y': 0.98, 'bgcolor': 'rgba(255, 255, 255, 0.7)',
                 'bordercolor': 'rgb(0, 0, 0)', 'borderwidth': 1})
-    
-    cell_plot_df[cluster_col] = (cell_plot_df[cluster_col] + 1).astype(str)
-    all_clusters = sorted(cell_plot_df[cluster_col].unique())
+
+    if np.all(cell_plot_df['label'].str.isnumeric()):
+        all_clusters = sorted(cell_plot_df['label'].unique(), key=int)
+    else:
+        all_clusters = sorted(cell_plot_df['label'].unique())
     data = []
     choropleth_dict = dict(
         showlegend=True,
         showscale=False,
         marker_opacity=alpha,
         marker_line_width=0.1)
-    
+
+    if colorscale is None:
+        if 'homeless' in all_clusters:
+            # We generate one color less and assign grey to homeless counties.
+            colorscale = (map_viz.gen_distinct_colors(len(all_clusters) - 1)
+                          + [(0.5, 0.5, 0.5)])
+        else:
+            colorscale = map_viz.gen_distinct_colors(len(all_clusters))
+        colorscale = [f'rgb{c}' for c in  colorscale]
+
     # Each cluster is plotted in a separate trace.
     for i, cluster in enumerate(all_clusters):
-        mask = cell_plot_df[cluster_col] == cluster
+        mask = cell_plot_df['label'] == cluster
         # We extract only the geometries within the cluster to generate separate
         # but non-duplicate GeoJSON data.
         geo_dict = geometry.loc[mask].__geo_interface__
@@ -116,10 +135,30 @@ def clusters(cell_plot_df, cluster_col,
             **choropleth_dict,
             geojson=geo_dict,
             locations=mask.loc[mask].index.values,
-            z=[i,] * mask.sum(),
+            z=[i] * mask.sum(),
             colorscale=((0.0, c), (1.0, c)),
-            name=cluster))
+            name=str(cluster)))
 
     fig = go.Figure(data=data, layout=layout)
     fig = plot_interactive(fig, **plot_interactive_kwargs)
     return fig
+
+
+def get_jpt_address():
+    '''
+    Get the currently running Jupyter's server address, or at least the first
+    one found, if any.
+    '''
+    # from jupyter_server import serverapp
+    # serverapp.list_running_servers()
+    env_path = (os.environ.get('VIRTUAL_ENV')
+                or os.environ.get('CONDA_DEFAULT_ENV'))
+    serv_list = subprocess.run([env_path + '/bin/jupyter', 'server', 'list'],
+                               capture_output=True, check=True)
+    all_lines = serv_list.stdout.decode().split('\n')
+    for line in all_lines[1:]:
+        address, jpt_wd = line.split(' :: ')
+        if jpt_wd == os.environ['PWD']:
+            return address
+
+    return ''
