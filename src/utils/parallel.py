@@ -8,6 +8,12 @@ def split_task(fun, num_cpus, list_iter, *fun_args, **fun_kwargs):
     '''
     bounds = np.linspace(0, len(list_iter), num_cpus+1).astype(int)
     sub_list_iter = [list_iter[bounds[i]:bounds[i+1]] for i in range(num_cpus)]
-    obj_refs = [fun.remote(sub_list, *fun_args, **fun_kwargs) for sub_list in sub_list_iter]
+
+    @ray.remote
+    def remote_fun(sub_list, *fun_args, **fun_kwargs):
+        return fun(sub_list, *fun_args, **fun_kwargs)
+
+    obj_refs = [remote_fun.remote(sub_list, *fun_args, **fun_kwargs)
+                for sub_list in sub_list_iter]
     res = ray.get(obj_refs)
     return res

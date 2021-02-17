@@ -1,8 +1,7 @@
+import re
 import numpy as np
 import pandas as pd
-import ray
 
-@ray.remote
 def distribs_extract(list_fips, freq_file_format):
     '''
     Reads all data files corresponding to `freq_file_format`, cleans them and
@@ -18,7 +17,7 @@ def distribs_extract(list_fips, freq_file_format):
                                     index_col=0, keep_default_na=False)
         # remove characters outside of the range of the English language + all
         # latin accents
-        pattern = "[^a-zA-Z\u00C0-\u00FF]"
+        pattern = re.compile("[^a-zA-Z\u00C0-\u00FF]")
         word_counts.index = word_counts.index.str.replace(pattern, '')
         word_counts = word_counts.loc[word_counts.index != '']
         word_counts = word_counts.groupby('word', sort=False)['count'].sum()
