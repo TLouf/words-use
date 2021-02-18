@@ -116,7 +116,7 @@ sklearn==0.0
 sniffio==1.2.0
 soupsieve==2.0.1
 # Editable install with no version control (src==0.1.0)
--e /home/thomaslouf/Documents/code/words-use
+-e ./
 terminado==0.9.1
 testpath==0.4.4
 threadpoolctl==2.1.0
