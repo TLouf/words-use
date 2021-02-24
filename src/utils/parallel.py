@@ -15,5 +15,4 @@ def split_task(fun, num_cpus, list_iter, *fun_args, **fun_kwargs):
 
     obj_refs = [remote_fun.remote(sub_list, *fun_args, **fun_kwargs)
                 for sub_list in sub_list_iter]
-    res = ray.get(obj_refs)
-    return res
+    return obj_refs
