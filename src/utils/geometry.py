@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
-from shapely.geometry import MultiPolygon
-from shapely.geometry import Polygon
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon, MultiPolygon, box
 import geopandas as geopd
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -107,6 +105,9 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
                     (sub_right_x, sub_bot_y), (sub_left_x, sub_bot_y)]))
 
     cells_df = geopd.GeoDataFrame(cells_list, crs=xy_proj, columns=['geometry'])
+    # Prefix `cc` to the index to keep a unique index when mixing data from
+    # several regions.
+    cells_df.index = shape_df.cc + '.' + cells_df.index.astype(str)
     cells_df['cell_id'] = cells_df.index
     if intersect:
         cells_in_shape_df = geopd.overlay(
@@ -120,21 +121,26 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     return cells_df, cells_in_shape_df, Nx-1, Ny-1
 
 
-def extract_shape(shape_df, shapefile_dict,
+def extract_shape(shape_df, shapefile_dict, bbox=None, latlon_proj='epsg:4326',
                   min_area=None, simplify_tol=None, xy_proj='epsg:3857'):
     '''
     Extracts the shape of the area of interest, which should be located on the
     row where the string in the `shapefile_dict['col'],` of `shape_df` starts
-    with `shapefile_dict['val']`. Then the shape we extract is simplified to
-    accelerate later computations, first by removing irrelevant polygons inside
-    the shape (if it's comprised of more than one), and then simplifying the
-    contours.
+    with `shapefile_dict['val']`. If bbox is provided, in the format [min_lon,
+    min_lat, max_lon, max_lat], only keep the intersection of the shape with
+    this bounding box. Then the shape we extract is simplified to accelerate
+    later computations, first by removing irrelevant polygons inside the shape
+    (if it's comprised of more than one), and then simplifying the contours.
     '''
     col = shapefile_dict['col']
     if col in shape_df.columns:
         shape_df = shape_df.loc[
             shape_df[col].str.startswith(shapefile_dict['val'])]
     shape_df = shape_df.to_crs(xy_proj)
+    if bbox:
+        bbox_geodf = geopd.GeoDataFrame(geometry=[box(*bbox)], crs=latlon_proj)
+        shape_df = geopd.overlay(shape_df, bbox_geodf.to_crs(xy_proj),
+                                 how='intersection')
     shapely_geo = shape_df.geometry.iloc[0]
 
     if min_area is None or simplify_tol is None:
@@ -209,6 +215,8 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
                              & (places_df['max_lat'] > shape_min_lat))
     shape_mask = is_bot_left_in_shape | is_top_right_in_shape
     places_df = places_df.loc[shape_mask]
+    # The area obtained here is in degree**2 and thus doesn't mean much, we just
+    # get it at this point to differentiate points from polygons.
     places_df['geometry'], places_df['area'] = [
         pd.Series(x, index=places_df.index)
         for x in zip(*places_df['bounding_box'].apply(geo_from_bbox))]
@@ -241,9 +249,7 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
         columns=['bounding_box', 'id', 'index_shape'])
     places_geodf.index.name = 'place_id'
     places_geodf.cc = shape_df.cc
-    places_in_xy = places_geodf.geometry.to_crs(xy_proj)
-    places_in_xy.cc = shape_df.cc
-    return places_geodf, places_in_xy
+    return places_geodf
 
 
 def d_matrix_from_cells(cell_plot_df):
@@ -258,5 +264,3 @@ def d_matrix_from_cells(cell_plot_df):
         d_matrix[i, i:] = cells_centroids[i:].distance(cells_centroids[i])
         d_matrix[i:, i] = d_matrix[i, i:]
     return d_matrix
-
-
