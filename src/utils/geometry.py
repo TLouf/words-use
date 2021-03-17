@@ -121,7 +121,7 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     return cells_df, cells_in_shape_df, Nx-1, Ny-1
 
 
-def extract_shape(shape_df, shapefile_dict, bbox=None, latlon_proj='epsg:4326',
+def extract_shape(raw_shape_df, shapefile_dict, bbox=None, latlon_proj='epsg:4326',
                   min_area=None, simplify_tol=None, xy_proj='epsg:3857'):
     '''
     Extracts the shape of the area of interest, which should be located on the
@@ -132,6 +132,7 @@ def extract_shape(shape_df, shapefile_dict, bbox=None, latlon_proj='epsg:4326',
     later computations, first by removing irrelevant polygons inside the shape
     (if it's comprised of more than one), and then simplifying the contours.
     '''
+    shape_df = raw_shape_df.copy()
     col = shapefile_dict['col']
     if col in shape_df.columns:
         shape_df = shape_df.loc[
@@ -187,39 +188,46 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
     their centroid within `shape_df`, and calculates their area within the shape
     in squared meters.
     '''
+    # Very few places have a null bounding box, 2 of them in Canada for
+    # instance, so we get rid of those.
+    places_df = (raw_places_df.rename(columns={'bounding_box': 'bbox'})
+                              .dropna(subset=['bbox'])
+                              .copy())
+    places_df['bbox'] = places_df['bbox'].apply(
+        lambda bbox: bbox['coordinates'][0])
     shape_in_latlon = shape_df[['geometry']].to_crs(latlon_proj)
     shape_min_lon, shape_min_lat, shape_max_lon, shape_max_lat = (
         shape_in_latlon['geometry'].iloc[0].bounds)
-    # Very few places have a null bounding box, 2 of them in Canada for
-    # instance, so we get rid of those.
-    places_df = raw_places_df.dropna(subset=['bounding_box']).copy()
-    places_df['bounding_box'] = places_df['bounding_box'].apply(
-        lambda bbox: bbox['coordinates'][0])
-    # We will first filter out places which are outside of or bigger than the
-    # shape we're considering. This may seem redundant with what follows, but
-    # this part is much faster to run, and allows the following operations to
-    # run much faster, as the size of `places_df` can be greatly reduced (for
-    # instance when considering a state of the US, which has more than a million
-    # entries in `places_df`).
-    places_df['min_lon'] = places_df['bounding_box'].apply(lambda x: x[0][0])
-    places_df['min_lat'] = places_df['bounding_box'].apply(lambda x: x[0][1])
-    places_df['max_lon'] = places_df['bounding_box'].apply(lambda x: x[2][0])
-    places_df['max_lat'] = places_df['bounding_box'].apply(lambda x: x[2][1])
-    is_bot_left_in_shape = ((places_df['min_lon'] < shape_max_lon)
-                            & (places_df['min_lon'] > shape_min_lon)
-                            & (places_df['min_lat'] < shape_max_lat)
-                            & (places_df['min_lat'] > shape_min_lat))
-    is_top_right_in_shape = ((places_df['max_lon'] < shape_max_lon)
-                             & (places_df['max_lon'] > shape_min_lon)
-                             & (places_df['max_lat'] < shape_max_lat)
-                             & (places_df['max_lat'] > shape_min_lat))
-    shape_mask = is_bot_left_in_shape | is_top_right_in_shape
+    # We will first filter out places which are outside of or bigger than
+    # the shape we're considering. This may seem redundant with what
+    # follows, but this part is much faster to run, and allows the following
+    # operations to run much faster, as the size of `places_df` can be
+    # greatly reduced (for instance when considering a state of the US,
+    # which has more than a million entries in `places_df`).
+    places_df['min_lon'] = places_df['bbox'].apply(lambda x: x[0][0])
+    places_df['min_lat'] = places_df['bbox'].apply(lambda x: x[0][1])
+    places_df['max_lon'] = places_df['bbox'].apply(lambda x: x[2][0])
+    places_df['max_lat'] = places_df['bbox'].apply(lambda x: x[2][1])
+    is_bot_left_in_shape = ((places_df['min_lon'] <= shape_max_lon)
+                            & (places_df['min_lon'] >= shape_min_lon)
+                            & (places_df['min_lat'] <= shape_max_lat)
+                            & (places_df['min_lat'] >= shape_min_lat))
+    is_top_right_in_shape = ((places_df['max_lon'] <= shape_max_lon)
+                            & (places_df['max_lon'] >= shape_min_lon)
+                            & (places_df['max_lat'] <= shape_max_lat)
+                            & (places_df['max_lat'] >= shape_min_lat))
+    # Add this mask to keep country when there are no other used bbox places,
+    # for small countries where we keep a single cell we need to keep it, and
+    # for larger countries it will be discarded with the `max_place_area` filter
+    # anyway.
+    is_country = places_df['place_type'] == 'country'
+    shape_mask = is_bot_left_in_shape | is_top_right_in_shape | is_country
     places_df = places_df.loc[shape_mask]
     # The area obtained here is in degree**2 and thus doesn't mean much, we just
     # get it at this point to differentiate points from polygons.
     places_df['geometry'], places_df['area'] = [
         pd.Series(x, index=places_df.index)
-        for x in zip(*places_df['bounding_box'].apply(geo_from_bbox))]
+        for x in zip(*places_df['bbox'].apply(geo_from_bbox))]
     places_geodf = geopd.GeoDataFrame(
         places_df, crs=latlon_proj, geometry=places_df['geometry'])
     places_geodf = places_geodf.set_index('id', drop=False)
@@ -246,7 +254,7 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
         polygons_in_shape = polygons_in_shape.set_index('id')
         places_geodf.loc[poly_mask, 'area'] = polygons_in_shape.area
     places_geodf = places_geodf.drop(
-        columns=['bounding_box', 'id', 'index_shape'])
+        columns=['bbox', 'id', 'index_shape'])
     places_geodf.index.name = 'place_id'
     places_geodf.cc = shape_df.cc
     return places_geodf
