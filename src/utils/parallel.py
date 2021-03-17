@@ -33,4 +33,4 @@ def fast_combine(combine_fun, list_elems):
         list_elems = list_elems[2:] + [combine_remote.remote(list_elems[0],
                                                              list_elems[1])]
 
-    return list_elems[0]
+    return list_elems
