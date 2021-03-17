@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import pandas as pd
+import src.utils.geometry as geo
 
 def basic(geodf, plot_series, fig=None, ax=None, **plot_kw):
     plot_geodf = geodf.join(plot_series, how='inner')
@@ -17,25 +18,24 @@ def basic(geodf, plot_series, fig=None, ax=None, **plot_kw):
 def word_prop(word, global_words, valid_geos, word_vectors, geodf,
               **basic_kwargs):
     iloc_word = np.where(global_words['word'].values == word)[0][0]
-    proj_cnt = pd.Series(word_vectors[:, iloc_word],
-                         index=valid_geos, name='plot')
-    return basic(geodf, proj_cnt, **basic_kwargs)
+    proj_cells = pd.Series(word_vectors[:, iloc_word],
+                           index=valid_geos, name='plot')
+    return basic(geodf, proj_cells, **basic_kwargs)
 
 
-def clusters(geodf, cnt_clusters, valid_cnt, **plot_kw):
-    plot_series = pd.Series(cnt_clusters + 1,
-                            name='hierarc', index=valid_cnt)
+def clusters(geodf, cell_clusters, valid_cells, **plot_kw):
+    plot_series = pd.Series(cell_clusters + 1,
+                            name='hierarc', index=valid_cells)
     return basic(geodf, plot_series, categorical=True, **plot_kw)
 
 
-def overlap_clusters(geodf, cluster_dict, valid_cnt,
-                     fig=None, ax=None, **plot_kw):
+def overlap_clusters(geodf, cluster_data, fig=None, ax=None, **plot_kw):
     '''
     Plot a cluster map with a legend.
     '''
     if ax is None:
         fig, ax = plt.subplots(1)
-    plot_geodf = prep_cluster_plot(geodf, cluster_dict, valid_cnt)
+    plot_geodf = prep_cluster_plot(geodf, cluster_data)
     unique_labels = sorted(plot_geodf['label'].unique())
     if 'homeless' in unique_labels:
         colors = gen_distinct_colors(len(unique_labels) - 1) + [(0.5, 0.5, 0.5)]
@@ -71,31 +71,101 @@ def gen_distinct_colors(num_colors):
     return colors
 
 
-def prep_cluster_plot(geodf, cluster_data, valid_cnt):
+def prep_cluster_plot(geodf, cluster_data):
     '''
     Prepares the GeoDataFrame `geodf` to be passed to `overlap_clusters` or
-    `interative.clusters`, by adding a column for the cluster labels, allowing
+    `interactive.clusters`, by adding a column for the cluster labels, allowing
     for overlapping clusters.
     '''
+    valid_cells = geodf.index
     if isinstance(cluster_data, np.ndarray):
-        cnt_dict = {fips: [clust] for fips, clust in zip(valid_cnt, cluster_data)}
+        cell_dict = {
+            cell_id: [clust]
+            for cell_id, clust in zip(valid_cells, cluster_data)}
     elif isinstance(cluster_data, dict):
-        if len(cluster_data) == len(valid_cnt):
-            cnt_dict = dict(zip(valid_cnt, cluster_data.values()))
+        if len(cluster_data) == len(valid_cells):
+            cell_dict = dict(zip(valid_cells, cluster_data.values()))
         else:
-            # revert dict cluster: [counties] to cnt: [clusters]
-            cnt_dict = {fips: [] for fips in valid_cnt}
-            for cluster, counties in cluster_data.items():
-                for i_cnt in counties:
-                    cnt_dict[valid_cnt[i_cnt]].append(cluster)
+            # translate dict cluster: [cells] to cell: [clusters]
+            cell_dict = {cell_id: [] for cell_id in valid_cells}
+            for cluster, cells in cluster_data.items():
+                for c in cells:
+                    cell_dict[valid_cells[c]].append(cluster)
     else:
         raise TypeError('''cluster_data must either be an array of cluster
                         labels (as is the case for the result from hierarchical
                         clustering), or a dictionary mapping clusters to a list
-                        of counties, or counties to a list of clusters''')
+                        of cells, or cells to a list of clusters''')
 
-    plot_geodf = geodf.join(pd.Series(cnt_dict, name='clusters'), how='inner')
+    plot_geodf = geodf.join(pd.Series(cell_dict, name='clusters'), how='inner')
     plot_geodf['label'] = (
         plot_geodf['clusters'].apply(lambda x: '+'.join([str(c+1) for c in x])))
     plot_geodf.loc[plot_geodf['label'] == '0', 'label'] = 'homeless'
     return plot_geodf
+
+
+def get_width_ratios(geodf, cc_list, ratio_lgd=0.05, latlon_proj='epsg:4326'):
+    '''
+    Get the width ratios to pass to a GridSpec so that maps of different regions
+    on a same line all fit the full provided height.
+    '''
+    width_ratios = ratio_lgd * np.ones(len(cc_list) + 1)
+    for i, cc in enumerate(cc_list):
+        cc_mask = geodf.index.str.startswith(cc)
+        min_lon, min_lat, max_lon, max_lat = (
+            geodf.loc[cc_mask].geometry.to_crs(latlon_proj).total_bounds)
+        # For a given longitude extent, the width is maximum the closer to the
+        # equator, so the closer the latitude is to 0.
+        eq_crossed = min_lat * max_lat < 0
+        lat_max_width = min(abs(min_lat), abs(max_lat)) * (1 - int(eq_crossed))
+        width = geo.haversine(min_lon, lat_max_width, max_lon, lat_max_width)
+        height = geo.haversine(min_lon, min_lat, min_lon, max_lat)
+        width_ratios[i] = width / height
+    width_ratios[:-1] *= (1 - ratio_lgd) / width_ratios[:-1].sum()
+    return width_ratios
+
+
+def joint_cc(geodf, cluster_data, data_dict, cmap=None, show=True,
+             **fig_kwargs):
+    '''
+    Plots cluster maps of different regions described in `data_dict`, with cells
+    given in `geodf`, and their associated clusters in `cluster_data`. Adds a
+    single legend for all the maps.
+    '''
+    fig, axes = plt.subplots(ncols=len(data_dict.keys()) + 1, **fig_kwargs)
+    plot_geodf = prep_cluster_plot(geodf, cluster_data)
+    unique_labels = sorted(plot_geodf['label'].unique())
+    nr_cats = len(unique_labels)
+    if cmap is None:
+        gen_colors_fun = gen_distinct_colors
+    else:
+        gen_colors_fun = lambda n: list(plt.get_cmap(cmap, n).colors)
+    if 'homeless' in unique_labels:
+        colors = gen_colors_fun(nr_cats - 1) + [(0.5, 0.5, 0.5, 1)]
+    else:
+        colors = gen_colors_fun(nr_cats)
+    label_color = dict(zip(unique_labels, colors))
+
+    for ax, (cc, reg_dict) in zip(axes[:-1], data_dict.items()):
+        xy_proj = reg_dict['xy_proj']
+        cc_idx = plot_geodf.index.str.startswith(cc)
+        cc_geodf = plot_geodf.loc[cc_idx].to_crs(xy_proj)
+        for lab, lab_geodf in cc_geodf.groupby('label'):
+            lab_geodf.plot(ax=ax, color=label_color[lab],) #, **plot_kw)
+        shape_df = reg_dict['shape_df'].to_crs(xy_proj)
+        shape_df.plot(ax=ax, color='none', edgecolor='black')
+        ax.set_axis_off()
+
+    cax = axes[-1]
+    handles = []
+    for l, c in label_color.items():
+        # The colours will correspond because groupby sorts by the column by
+        # which we group, and we sorted the unique labels.
+        handles.append(mlines.Line2D([], [], color=c, marker='o',
+                                     linestyle='None', markersize=6, label=l))
+    cax.legend(handles=handles)
+    cax.set_axis_off()
+    if show:
+        fig.show()
+    return fig, axes
+    

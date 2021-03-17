@@ -1,6 +1,8 @@
 from itertools import chain
 import re
 import subprocess
+import numpy as np
+import esda
 
 def gen_oslom_res_path(data_path, oslom_opt_params, suffix=''):
     '''
@@ -42,8 +44,8 @@ def read_oslom_res(oslom_res_path):
     key -1 is reserved for singletons.
     '''
     cluster_dict = {}
-    for file_path in chain(oslom_res_path.glob('tp'),
-                           oslom_res_path.glob('tp[1-9]')):
+    for file_path in chain(oslom_res_path.glob('tp[1-9]'),
+                           oslom_res_path.glob('tp')):
         lvl_match = re.search("tp([1-9]+)", str(file_path))
         if lvl_match is None:
             lvl = 0
@@ -69,3 +71,39 @@ def read_oslom_res(oslom_res_path):
                 cnt_id = int(mod_cnties[0])
                 cluster_dict[lvl][-1].append(cnt_id)
     return cluster_dict
+
+
+def get_clusters_agg(cutree):
+    '''
+    From a matrix (n_samples x n_levels), returns a matrix (n_levels x
+    max_nr_clusters) giving the assignment of the lowest level's clusters at
+    higher levels, thus showing which clusters get aggregated with which at each
+    aggregation step.
+    '''
+    n_lvls = cutree.shape[1]
+    levels_x_clust = np.zeros((n_lvls, n_lvls + 1)).astype(int)
+    levels_x_clust[-1, :] = np.arange(0, n_lvls + 1)
+    for i in range(n_lvls-2, -1, -1):
+        lvl_clusts = cutree[:, i]
+        lower_lvl_clusts = cutree[:, i+1]
+        # For every cluster in the lower level,
+        for clust in np.unique(lower_lvl_clusts):
+            # we select the higher level cluster to which it belongs. Because we
+            # started from the less aggregated level, all members of that
+            # cluster will belong to the same cluster in the more aggregated
+            # level, so we take the higher level cluster of the first one.
+            agg_lvl = lvl_clusts[lower_lvl_clusts == clust][0]
+            levels_x_clust[i, :][levels_x_clust[i+1, :] == clust] = agg_lvl
+    levels_x_clust += 1
+    return levels_x_clust
+
+
+def chunk_moran(list_i, word_vectors, contiguity):
+    moran_dict = {'I': [], 'z_value': [], 'p_value': []}
+    for i in list_i:
+        y = word_vectors[:, i]
+        mi = esda.moran.Moran(y, contiguity)
+        moran_dict['I'].append(mi.I)
+        moran_dict['z_value'].append(mi.z_sim)
+        moran_dict['p_value'].append(mi.p_sim)
+    return moran_dict
