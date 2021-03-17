@@ -2,7 +2,8 @@
 This module is aimed at reading JSON data files, either locally or from a remote
 host. The data files are not exactly JSON, they're files in which each line is a
 JSON object, thus making up a row of data, and in which each key of the JSON
-strings refers to a column.
+strings refers to a column. Cannot use Modin or Dask because of gzip
+compression, Parquet data files would be ideal.
 '''
 import gzip
 import logging
@@ -11,26 +12,27 @@ import pandas as pd
 LOGGER = logging.getLogger(__name__)
 
 
-def yield_tweets_access(tweets_files_paths, tweets_res=None, size=1e9):
+def yield_tweets_access(file_path, size=1e9):
     '''
-    Yields what we call an access to a tweets' DataFrame, which can either be
-    the DataFrame directly if a list `tweets_res` of them is supplied, or the
-    arguments of `read_json_wrapper`. The functions applied in a loop started
-    from this generator then must have as an argument a "get_df" function to
-    finally get a DataFrame (see more detail in comments below).
-    Unfortunately we can't make this "get_df" function part of the yield here,
-    as the function needs to be pickable (so declared globally) for later use in
-    a multiprocessing context.
+    Yield access to the data in `file_path`, either a list of lines of the data
+    itself read with `read_json_bytes` or the chunk information to read data
+    with `read_json_bytes`.
     '''
-    if tweets_res is None:
-        # Here get_df = lambda x: read_json_wrapper(*x).
-        for file_path in tweets_files_paths:
-            for chunk_start, chunk_size in chunkify(file_path, size=size):
-                yield (file_path, chunk_start, chunk_size)
+    if file_path.stat().st_size > 5e9:
+        # When files are too large, we prefer to directly readlines to
+        # avoid seeking as in `read_json_bytes`. This adds overhead but it's
+        # worth it when files are large enough.
+        for f in yield_gzip(file_path):
+            while True:
+                lines = f.read(int(size))
+                lines += f.readline()
+                if len(lines) > 0:
+                    yield lines
+                else:
+                    break
     else:
-        # In this case get_df = lambda x: x is to be used
-        for tweets_df in tweets_res:
-            yield tweets_df
+        for chunk_start, chunk_size in chunkify(file_path, size=size):
+            yield (file_path, chunk_start, chunk_size)
 
 
 # Better to separate generators (functions with yield) and regular functions
@@ -57,7 +59,6 @@ def yield_json(file_path, chunk_size=1000, compression='infer'):
         yield raw_df
 
 
-
 def yield_gzip(file_path):
     '''
     Yields a gzip file handler from a remote or local directory.
@@ -66,19 +67,40 @@ def yield_gzip(file_path):
         yield unzipped_f
 
 
-def read_json_wrapper(file_path, chunk_start, chunk_size):
+def read_json_bytes(file_path, chunk_start, chunk_size):
     '''
     Reads a DataFrame from the json file in 'file_path', starting at the byte
     'chunk_start' and reading 'chunk_size' bytes.
     '''
     for f in yield_gzip(file_path):
+        # The following is extremely costly on large files, prefer
+        # `read_json_lines` when files are of several GB.
         f.seek(chunk_start)
         lines = f.read(chunk_size)
-        raw_tweets_df = pd.read_json(lines, lines=True)
-        nr_tweets = len(raw_tweets_df)
+        df = pd.read_json(lines, lines=True)
+        nr_tweets = len(df)
         LOGGER.info(f'{chunk_size*10**-6:.4g}MB read, {nr_tweets} tweets '
                     'unpacked.')
-        return raw_tweets_df
+        return df
+
+
+def read_json_lines(lines):
+    '''
+    Reads a DataFrame from the string or bytes `lines`.
+    '''
+    df = pd.read_json(lines, lines=True)
+    nr_tweets = len(df)
+    LOGGER.info(f'{nr_tweets} tweets unpacked')
+    return df
+
+
+def read_json_wrapper(df_access):
+    # If the file was not too large,
+    if isinstance(df_access, tuple):
+        df = read_json_bytes(*df_access)
+    else:
+        df = read_json_lines(df_access)
+    return df
 
 
 def chunkify(file_path, size=5e8):
@@ -108,4 +130,3 @@ def chunkify(file_path, size=5e8):
             # file.
             if chunk_end - chunk_start < size:
                 break
-
