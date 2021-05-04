@@ -88,3 +88,5 @@ target/
 
 # Bash scripts
 *.sh
+
+reports/
