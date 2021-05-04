@@ -17,7 +17,7 @@ def silhouette(vectors, cluster_labels, metric='euclidean',
                                          metric=metric)
     # The (n_clusters+1)*10 is for inserting blank space between silhouette
     # plots of individual clusters, to demarcate them clearly.
-    y_spacing = len(vectors) * spacing_coeff
+    y_spacing = int(len(vectors) * spacing_coeff)
     ax.set_ylim([0, len(vectors) + (n_clusters + 1) * y_spacing])
     y_lower = y_spacing
     for i in range(n_clusters):
