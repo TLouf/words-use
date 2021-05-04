@@ -22,6 +22,12 @@ def haversine(lon1, lat1, lon2, lat2):
 
 def gen_quadrants(left_x, right_x, bot_y, top_y, places_geodf, sub_cells_list,
                   min_size=1000, max_nr_places=10):
+    '''
+    Recursively splits each quadrant of the cell defined by the coordinates
+    (`left_x`, `right_x`, `bot_y`, `top_y`), as long as there are more than
+    `max_nr_places` contained within a subcell, stopping at a minimum cell size
+    of `min_size`
+    '''
     mid_x = (left_x + right_x) / 2
     mid_y = (bot_y + top_y) / 2
     for quadrant in [(left_x, mid_x, bot_y, mid_y),
@@ -121,29 +127,22 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     return cells_df, cells_in_shape_df, Nx-1, Ny-1
 
 
-def extract_shape(raw_shape_df, shapefile_dict, bbox=None, latlon_proj='epsg:4326',
+def extract_shape(raw_shape_df, cc, bbox=None, latlon_proj='epsg:4326',
                   min_area=None, simplify_tol=None, xy_proj='epsg:3857'):
     '''
-    Extracts the shape of the area of interest, which should be located on the
-    row where the string in the `shapefile_dict['col'],` of `shape_df` starts
-    with `shapefile_dict['val']`. If bbox is provided, in the format [min_lon,
-    min_lat, max_lon, max_lat], only keep the intersection of the shape with
-    this bounding box. Then the shape we extract is simplified to accelerate
-    later computations, first by removing irrelevant polygons inside the shape
-    (if it's comprised of more than one), and then simplifying the contours.
+    Extracts the shape of the area of interest. If bbox is provided, in the
+    format [min_lon, min_lat, max_lon, max_lat], only keep the intersection of
+    the shape with this bounding box. Then the shape we extract is simplified to
+    accelerate later computations, first by removing irrelevant polygons inside
+    the shape (if it's comprised of more than one), and then simplifying the
+    contours.
     '''
     shape_df = raw_shape_df.copy()
-    col = shapefile_dict['col']
-    if col in shape_df.columns:
-        shape_df = shape_df.loc[
-            shape_df[col].str.startswith(shapefile_dict['val'])]
-    shape_df = shape_df.to_crs(xy_proj)
     if bbox:
         bbox_geodf = geopd.GeoDataFrame(geometry=[box(*bbox)], crs=latlon_proj)
-        shape_df = geopd.overlay(shape_df, bbox_geodf.to_crs(xy_proj),
-                                 how='intersection')
+        shape_df = geopd.overlay(shape_df, bbox_geodf, how='intersection')
+    shape_df = shape_df.to_crs(xy_proj)
     shapely_geo = shape_df.geometry.iloc[0]
-
     if min_area is None or simplify_tol is None:
         area_bounds = shapely_geo.bounds
         # Get an upper limit of the distance that can be travelled inside the
@@ -163,7 +162,7 @@ def extract_shape(raw_shape_df, shapefile_dict, bbox=None, latlon_proj='epsg:432
     # We also simplify by a given tolerance (max distance a point can be moved),
     # this could be a parameter in countries.json if needed
     shape_df.geometry = shape_df.simplify(simplify_tol)
-    shape_df.cc = shapefile_dict['cc']
+    shape_df.cc = cc
     return shape_df
 
 
@@ -272,3 +271,19 @@ def d_matrix_from_cells(cell_plot_df):
         d_matrix[i, i:] = cells_centroids[i:].distance(cells_centroids[i])
         d_matrix[i:, i] = d_matrix[i, i:]
     return d_matrix
+
+
+def calc_shape_dims(shape_df, latlon_proj='epsg:4326'):
+    '''
+    Calculate the width and height in meters of the bounding box of the shapes
+    contained within `shape_df`.
+    '''
+    min_lon, min_lat, max_lon, max_lat = (
+        shape_df.geometry.to_crs(latlon_proj).total_bounds)
+    # For a given longitude extent, the width is maximum the closer to the
+    # equator, so the closer the latitude is to 0.
+    eq_crossed = min_lat * max_lat < 0
+    lat_max_width = min(abs(min_lat), abs(max_lat)) * (1 - int(eq_crossed))
+    width = haversine(min_lon, lat_max_width, max_lon, lat_max_width)
+    height = haversine(min_lon, min_lat, min_lon, max_lat)
+    return width, height
