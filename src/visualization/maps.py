@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import pandas as pd
+import rpack
 import src.utils.geometry as geo
 
 def basic(geodf, plot_series, fig=None, ax=None, **plot_kw):
@@ -71,6 +72,21 @@ def gen_distinct_colors(num_colors):
     return colors
 
 
+def colored_pts_legend(container, label_color, marker='o', markersize=6,
+                       loc='upper right'):
+    '''
+    Adds to a legend with colored points to a `container`, which can be a plt ax
+    or figure. The color of the points and their associated labels are given
+    respectively as values and keys of the dict `label_color`.
+    '''
+    handles = []
+    for l, c in label_color.items():
+        handles.append(mlines.Line2D([], [], color=c, marker=marker, label=l,
+                                     linestyle='None', markersize=markersize))
+    container.legend(handles=handles, loc=loc)
+    return container
+
+
 def prep_cluster_plot(geodf, cluster_data):
     '''
     Prepares the GeoDataFrame `geodf` to be passed to `overlap_clusters` or
@@ -106,23 +122,41 @@ def prep_cluster_plot(geodf, cluster_data):
 
 def get_width_ratios(geodf, cc_list, ratio_lgd=0.05, latlon_proj='epsg:4326'):
     '''
-    Get the width ratios to pass to a GridSpec so that maps of different regions
-    on a same line all fit the full provided height.
+    Get the width ratios to pass to `position_axes`.
     '''
-    width_ratios = ratio_lgd * np.ones(len(cc_list) + 1)
+    has_lgd = ratio_lgd > 0
+    width_ratios = np.ones(len(cc_list) + int(has_lgd))
     for i, cc in enumerate(cc_list):
         cc_mask = geodf.index.str.startswith(cc)
-        min_lon, min_lat, max_lon, max_lat = (
-            geodf.loc[cc_mask].geometry.to_crs(latlon_proj).total_bounds)
-        # For a given longitude extent, the width is maximum the closer to the
-        # equator, so the closer the latitude is to 0.
-        eq_crossed = min_lat * max_lat < 0
-        lat_max_width = min(abs(min_lat), abs(max_lat)) * (1 - int(eq_crossed))
-        width = geo.haversine(min_lon, lat_max_width, max_lon, lat_max_width)
-        height = geo.haversine(min_lon, min_lat, min_lon, max_lat)
+        width, height = geo.calc_shape_dims(geodf.loc[cc_mask],
+                                            latlon_proj=latlon_proj)
         width_ratios[i] = width / height
-    width_ratios[:-1] *= (1 - ratio_lgd) / width_ratios[:-1].sum()
+    if has_lgd:
+        width_ratios[:-1] = ratio_lgd * (1 - ratio_lgd) / width_ratios[:-1].sum()
     return width_ratios
+
+
+def position_axes(width_ratios, total_width):
+    '''
+    Positions the axes defined by the `width_ratios` such that they do not
+    overlap and the total width fits `total_width`.  Uses an algorithm of
+    so-called 'rectangle packing'. `total_width` must be an integer.
+    '''
+    int_widths = (width_ratios * total_width / width_ratios.max()).astype(int)
+    int_heights = (int_widths / width_ratios).astype(int)
+    sizes = list(zip([int(w) for w in int_widths],
+                     [int(h) for h in int_heights]))
+    positions = rpack.pack(sizes, max_width=total_width)
+    bboxes = np.array([
+        [left, bot, w, h]
+        for ((left, bot), w, h) in zip(positions, int_widths, int_heights)])
+    total_height = np.max(bboxes[:, 1] + bboxes[:, 3])
+    normed_bboxes = bboxes.astype(float)
+    normed_bboxes[:, 0] = normed_bboxes[:, 0] / total_width
+    normed_bboxes[:, 2] = normed_bboxes[:, 2] / total_width
+    normed_bboxes[:, 1] = normed_bboxes[:, 1] / total_height
+    normed_bboxes[:, 3] = normed_bboxes[:, 3] / total_height
+    return normed_bboxes, (total_width, total_height)
 
 
 def joint_cc(geodf, cluster_data, data_dict, cmap=None, show=True,
@@ -168,4 +202,3 @@ def joint_cc(geodf, cluster_data, data_dict, cmap=None, show=True,
     if show:
         fig.show()
     return fig, axes
-    
