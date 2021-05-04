@@ -92,7 +92,7 @@ def clusters(geodf, cluster_data, valid_cnt,
     Plots an interactive choropleth map of clusters, with a clickable legend to
     show/hide clusters.
     '''
-    cell_plot_df = map_viz.prep_cluster_plot(geodf, cluster_data, valid_cnt)
+    cell_plot_df = map_viz.prep_cluster_plot(geodf.loc[valid_cnt], cluster_data)
     geometry = cell_plot_df.to_crs(latlon_proj).geometry
     start_point = MultiPoint(geometry.centroid.values).centroid
     layout = go.Layout(
