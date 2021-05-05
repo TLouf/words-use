@@ -1,10 +1,25 @@
+from dataclasses import dataclass, field, asdict, InitVar
+from pathlib import Path
+from typing import Union
 from itertools import chain
+import os
 import re
 import subprocess
 import numpy as np
+import matplotlib.pyplot as plt
+import scipy.cluster.hierarchy as shc
+import scipy.spatial.distance
+import pandas as pd
 import esda
+from sklearn.decomposition import PCA
+import src.visualization.maps as map_viz
+import src.visualization.eval as eval_viz
+from dotenv import load_dotenv
+load_dotenv()
 
-def gen_oslom_res_path(data_path, oslom_opt_params, suffix=''):
+OSLOM_DIR = Path(os.environ['OSLOM_DIR'])
+
+def gen_oslom_res_path(data_path, oslom_opt_params=None, suffix=''):
     '''
     Generate a path where to save the results of OSLOM, based on the data file
     on which it will be run and with which parameters.
@@ -17,7 +32,17 @@ def gen_oslom_res_path(data_path, oslom_opt_params, suffix=''):
     return oslom_res_path
 
 
-def run_oslom(oslom_dir, data_path, res_path, oslom_opt_params=None,
+def gen_net_file_path(net_file_path_fmt, metric, transfo=None):
+    if transfo is None:
+        transfo_str = None
+    else:
+        transfo_str = transfo.__name__
+    oslom_net_file_path = Path(
+        str(net_file_path_fmt).format(metric=metric, transfo_str=transfo_str))
+    return oslom_net_file_path
+
+
+def run_oslom(oslom_dir, data_path, res_path=None, oslom_opt_params=None,
               directional=False, silent=False):
     '''
     Run the compiled OSLOM located in `oslom_dir` on the net<ork data contained
@@ -25,14 +50,19 @@ def run_oslom(oslom_dir, data_path, res_path, oslom_opt_params=None,
     '''
     if oslom_opt_params is None:
         oslom_opt_params = []
+    if res_path is None:
+        res_path = gen_oslom_res_path(
+            data_path, oslom_opt_params=oslom_opt_params)
     dir_prefix = (not directional) * 'un'
     oslom_exec_path = oslom_dir / f'oslom_{dir_prefix}dir'
     cmd_list = [str(oslom_exec_path), '-f',
                 str(data_path), '-o', str(res_path), '-w'] + oslom_opt_params
-    run_kwargs = {'check': True}
+    # run_kwargs = {'check': True}
+    run_kwargs = {}
     if silent:
         run_kwargs['stdout'] = subprocess.DEVNULL
-    p = subprocess.run(cmd_list, **run_kwargs)
+    # p = subprocess.run(cmd_list, **run_kwargs)
+    p = subprocess.Popen(cmd_list **run_kwargs)
     return p
 
 
@@ -70,6 +100,8 @@ def read_oslom_res(oslom_res_path):
             else:
                 cnt_id = int(mod_cnties[0])
                 cluster_dict[lvl][-1].append(cnt_id)
+    if len(cluster_dict) == 0:
+        raise FileNotFoundError(f'There is no result in {oslom_res_path}.')
     return cluster_dict
 
 
@@ -81,7 +113,7 @@ def get_clusters_agg(cutree):
     aggregation step.
     '''
     n_lvls = cutree.shape[1]
-    levels_x_clust = np.zeros((n_lvls, n_lvls + 1)).astype(int)
+    levels_x_clust = np.zeros((n_lvls, n_lvls + 1), dtype=int)
     levels_x_clust[-1, :] = np.arange(0, n_lvls + 1)
     for i in range(n_lvls-2, -1, -1):
         lvl_clusts = cutree[:, i]
@@ -107,3 +139,464 @@ def chunk_moran(list_i, word_vectors, contiguity):
         moran_dict['z_value'].append(mi.z_sim)
         moran_dict['p_value'].append(mi.p_sim)
     return moran_dict
+
+
+@dataclass
+class Clustering:
+    clusters_data: Union[dict, np.ndarray]
+    cells_ids: InitVar[np.ndarray]
+    method_repr: str
+    method_obj: callable = None
+    method_args: list = None
+    method_kwargs: dict = None
+    clusters_series: pd.Series = None
+    nr_clusters: int = None
+    prop_homeless: float = None
+    kwargs_str: str = None
+
+    def __post_init__(self, cells_ids):
+        # if cells_ids is not None:
+        self.clusters_series = self.get_clusters_series(cells_ids)
+        if self.kwargs_str is None:
+            self.kwargs_str = '_params=({})'.format(
+                '_'.join([f'{key}={value}'
+                          for key, value in self.method_kwargs.items()]))
+
+    def __str__(self):
+        self_dict = asdict(self)
+        exclude_keys = ['clusters_data', 'clusters_series']
+        return str({key: value
+                    for key, value in self_dict.items()
+                    if key not in exclude_keys})
+
+
+    def __repr__(self):
+        self_dict = asdict(self)
+        exclude_keys = ['clusters_data', 'clusters_series']
+        attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
+                              for key in self_dict.keys()
+                              if key not in exclude_keys])
+        return f'Clustering({attr_str})'
+
+
+    def get_clusters_series(self, cells_ids):
+        '''
+        Prepares the GeoDataFrame `geodf` to be passed to `overlap_clusters` or
+        `interactive.clusters`, by adding a column for the cluster labels, allowing
+        for overlapping clusters.
+        '''
+        if isinstance(self.clusters_data, np.ndarray):
+            cell_dict = {
+                cell_id: [clust]
+                for cell_id, clust in zip(cells_ids, self.clusters_data)}
+        elif isinstance(self.clusters_data, dict):
+            if len(self.clusters_data) == len(cells_ids):
+                cell_dict = dict(zip(cells_ids, self.clusters_data.values()))
+            else:
+                # translate dict cluster: [cells] to cell: [clusters]
+                cell_dict = {cell_id: [] for cell_id in cells_ids}
+                for cluster, cells in self.clusters_data.items():
+                    for c in cells:
+                        cell_dict[cells_ids[c]].append(cluster)
+        else:
+            raise TypeError(
+                '''clusters_data must either be an array of cluster
+                labels (as is the case for the result from hierarchical
+                clustering), or a dictionary mapping clusters to a list of
+                cells, or cells to a list of clusters''')
+
+        clusters_series = pd.Series(cell_dict, name='clusters')
+        self.nr_clusters = clusters_series.apply(np.max).max() + 1
+        self.clusters_series = (
+            clusters_series.apply(lambda x: '+'.join([str(c+1) for c in x])))
+        homeless_mask = self.clusters_series == '0'
+        self.clusters_series.loc[homeless_mask] = 'homeless'
+        self.prop_homeless = homeless_mask.sum() / homeless_mask.shape[0]
+        # self.nr_clusters = self.clusters_series.nunique()
+        return self.clusters_series
+
+
+    def get_binary_matrix(self, other_matrix=None):
+        nr_cells = self.clusters_series.shape[0]
+        binary_matrix = np.zeros((nr_cells, self.nr_clusters), dtype=int)
+        mask = self.clusters_series != 'homeless'
+        clust_arr = (
+            self.clusters_series.loc[mask]
+                                .apply(lambda lb: np.array(lb.split('+')))
+                                .values
+                                .astype(int))
+        clust_arr = clust_arr - 1
+        for i, clusts in zip(np.where(mask.values)[0], clust_arr):
+            binary_matrix[i, clusts] += 1
+
+        # If we wish to compare to another matrix, permute the cluster numbers
+        # so as to maximise the overlap with the clustering corresponding to the
+        # other matrix. In other words, make the correspondence between the two
+        # sets of cluster labels.
+        if other_matrix is not None:
+            i_col_list = list(range(other_matrix.shape[1]))
+            while len(i_col_list) > 1:
+                max_score = 0
+                for pot_i_og in i_col_list[:-1]:
+                    avg_size = (binary_matrix[:, pot_i_og].sum()
+                                + other_matrix.sum(axis=0)) / 2
+                    # Count how many cells have the same assignment, divide by
+                    # average cluster size
+                    is_overlap = binary_matrix.T == other_matrix[:, pot_i_og]
+                    overlap = is_overlap.sum(axis=1) / avg_size
+                    pot_i_dest = np.argmax(overlap)
+                    new_score = overlap[pot_i_dest]
+                    if new_score > max_score:
+                        max_score = new_score
+                        i_dest = pot_i_dest
+                        i_og = pot_i_og
+                binary_matrix[:, i_og], binary_matrix[:, i_dest] = (
+                    binary_matrix[:, i_dest], binary_matrix[:, i_og].copy())
+                print(i_og, i_dest)
+                i_col_list.remove(i_og)
+                if i_og != i_dest:
+                    i_col_list.remove(i_dest)
+        return binary_matrix
+
+
+    def attr_color_to_labels(self, cmap=None):
+        # make it an attribute to have consistent coloring?
+        unique_labels = sorted(self.clusters_series.unique())
+        if cmap is None:
+            gen_colors_fun = map_viz.gen_distinct_colors
+        else:
+            gen_colors_fun = lambda n: list(plt.get_cmap(cmap, n).colors)
+        nr_cats = len(unique_labels)
+        if 'homeless' in unique_labels:
+            colors = gen_colors_fun(nr_cats - 1) + [(0.5, 0.5, 0.5, 1)]
+        else:
+            colors = gen_colors_fun(nr_cats)
+
+        label_color = dict(zip(unique_labels, colors))
+        return label_color
+
+
+    def map_plot(self, geodf, shape_geodf, fig=None, ax=None, cax=None,
+                 show=True, save_path=None, cmap=None, xy_proj='epsg:3857',
+                 **kwargs):
+        if ax is None:
+            fig, ax = plt.subplots(1)
+        plot_geodf = (geodf.join(self.clusters_series, how='inner')
+                           .to_crs(xy_proj))
+
+        label_color = self.attr_color_to_labels(cmap=cmap)
+        for label, label_geodf in plot_geodf.groupby('clusters'):
+            # Don't put a cmap in kwargs['plot'] because here we use a fixed
+            # color per cluster.
+            label_geodf.plot(ax=ax, color=label_color[label],
+                             **kwargs.get('plot', {}))
+        shape_geodf.to_crs(xy_proj).plot(ax=ax, color='none', edgecolor='black')
+        ax.set_axis_off()
+
+        if cax:
+            # The colours will correspond because groupby sorts by the column by
+            # which we group, and we sorted the unique labels.
+            cax = map_viz.colored_pts_legend(cax, label_color,
+                                             **kwargs.get('legend', {}))
+
+        if save_path:
+            fig.savefig(save_path)
+        if show:
+            fig.show()
+        return fig, ax
+
+
+    def reach_plot(self, fig=None, ax=None, figsize=None, show=True):
+        if ax is None:
+            fig, ax = plt.subplots(1, figsize=figsize)
+
+        optics = self.method_obj
+        reachability = optics.reachability_[optics.ordering_]
+        ordered_labels = optics.labels_[optics.ordering_]
+        space = np.arange(len(ordered_labels))
+
+        for klass in np.unique(ordered_labels)[1:]:
+            Xk = space[ordered_labels == klass]
+            Rk = reachability[ordered_labels == klass]
+            ax.plot(Xk, Rk)
+        ax.plot(space[ordered_labels == -1], reachability[ordered_labels == -1],
+                'k.', alpha=0.3, ms=1)
+        ax.set_ylabel('Reachability (epsilon distance)')
+        ax.set_title('Reachability Plot')
+        if show:
+            fig.show()
+        return fig, ax
+
+
+    def silhouette_plot(self, proj_vectors, metric=None):
+        # convention that in labels 0 means noise
+        cluster_labels = self.clusters_series.values.astype(int) - 1
+        if metric is None:
+            if self.method_kwargs is not None:
+                metric = self.method_kwargs.get('metric', 'euclidean')
+            else:
+                metric = 'euclidean'
+        fig, ax = eval_viz.silhouette(proj_vectors, cluster_labels,
+                                      metric=metric)
+        return fig, ax
+
+
+
+@dataclass
+class HierarchicalClustering:
+    levels: [Clustering]
+    method_repr: str
+    method_args: list = None
+    method_kwargs: dict = None
+    kwargs_str: str = None
+    linkage: np.ndarray = None
+    cut_tree: np.ndarray = None
+
+
+    def __post_init__(self):
+        if self.kwargs_str is None:
+            self.kwargs_str = '_params=({})'.format(
+                '_'.join([f'{key}={value}'
+                         for key, value in self.method_kwargs.items()]))
+
+    def __str__(self):
+        self_dict = asdict(self)
+        exclude_keys = ['linkage', 'cut_tree']
+        return str({key: value
+                    for key, value in self_dict.items()
+                    if key not in exclude_keys})
+
+
+    def __repr__(self):
+        self_dict = asdict(self)
+        exclude_keys = ['linkage', 'cut_tree']
+        attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
+                              for key in self_dict.keys()
+                              if key not in exclude_keys])
+        return f'HierarchicalClustering({attr_str})'
+
+
+    @classmethod
+    def from_scipy_agglo(cls, vectors, cells_ids, max_n_clusters=None,
+                         **linkage_kwargs):
+        method_repr = 'shc.linkage'
+        linkage = shc.linkage(vectors, **linkage_kwargs)
+        if max_n_clusters is None:
+            n_clusters = None
+        else:
+            n_clusters = np.asarray(range(2, max_n_clusters + 1))
+        cut_tree = shc.cut_tree(linkage, n_clusters=n_clusters)
+        levels = [
+            Clustering(lvl, cells_ids, method_repr,
+                       method_kwargs={**linkage_kwargs, 'lvl': i})
+            for i, lvl in enumerate(cut_tree.T)]
+        return cls(levels, method_repr, method_kwargs=linkage_kwargs,
+                   linkage=linkage, cut_tree=cut_tree)
+
+    @classmethod
+    def from_oslom_run(cls, oslom_net_file_path, cells_ids,
+                       oslom_opt_params=None):
+        if oslom_opt_params is None:
+            oslom_opt_params = []
+        method_repr = 'oslom'
+        oslom_res_path = gen_oslom_res_path(
+            oslom_net_file_path, oslom_opt_params=oslom_opt_params)
+        _ = run_oslom(OSLOM_DIR, oslom_net_file_path, oslom_res_path,
+                      oslom_opt_params=oslom_opt_params, silent=True)
+        levels_dict = read_oslom_res(oslom_res_path)
+        levels = [Clustering(lvl, cells_ids, method_repr)
+                  for lvl in levels_dict.values()]
+        return cls(levels, method_repr,
+                   kwargs_str=''.join(oslom_opt_params))
+
+    @classmethod
+    def from_oslom_res(cls, oslom_net_file_path, cells_ids,
+                       oslom_opt_params=None):
+        if oslom_opt_params is None:
+            oslom_opt_params = []
+        kwargs_str = ''.join(oslom_opt_params)
+        method_repr = 'oslom'
+        oslom_res_path = gen_oslom_res_path(
+            oslom_net_file_path, oslom_opt_params=oslom_opt_params)
+        levels_dict = read_oslom_res(oslom_res_path)
+        levels = [Clustering(lvl, cells_ids, method_repr, kwargs_str=kwargs_str)
+                  for lvl in levels_dict.values()]
+        return cls(levels, method_repr, kwargs_str=kwargs_str)
+
+
+    def get_clusters_agg(self):
+        '''
+        From a matrix (n_samples x n_levels), returns a matrix (n_levels x
+        max_nr_clusters) giving the assignment of the lowest level's clusters at
+        higher levels, thus showing which clusters get aggregated with which at each
+        aggregation step.
+        '''
+        n_lvls = len(self.levels)
+        levels_x_clust = np.zeros((n_lvls, n_lvls + 1), dtype=int)
+        levels_x_clust[-1, :] = np.arange(0, n_lvls + 1)
+        for i in range(n_lvls-2, -1, -1):
+            lvl_clusts = self.levels[i].clusters_arr
+            lower_lvl_clusts = self.levels[i+1].clusters_arr
+            # For every cluster in the lower level,
+            for clust in np.unique(lower_lvl_clusts):
+                # we select the higher level cluster to which it belongs. Because we
+                # started from the less aggregated level, all members of that
+                # cluster will belong to the same cluster in the more aggregated
+                # level, so we take the higher level cluster of the first one.
+                agg_lvl = lvl_clusts[lower_lvl_clusts == clust][0]
+                levels_x_clust[i, :][levels_x_clust[i+1, :] == clust] = agg_lvl
+        levels_x_clust += 1
+        return levels_x_clust
+
+
+    def plot_dendogram(self, p=30):
+        fig, ax = plt.subplots(1, figsize=(10, 7))
+        _ = shc.dendrogram(self.linkage, p=p, truncate_mode='lastp', ax=ax)
+        return fig, ax
+
+
+    def map_plot(self, *map_plot_args, fig=None, axes=None, **map_plot_kwargs):
+        if axes is None:
+            fig, axes = plt.subplots(nrows=len(self.levels))
+        for clustering, ax in zip(self.levels, axes):
+            fig, ax = clustering.map_plot(
+                *map_plot_args, fig=fig, ax=ax, **map_plot_kwargs)
+        return fig, axes
+
+
+    def silhouette_plot(self, proj_vectors, metric=None):
+        for lvl in self.levels:
+            _, _ = lvl.silhouette_plot(proj_vectors, metric=metric)
+
+
+
+@dataclass
+class Decomposition:
+    word_vec_var: str
+    decomposition: PCA
+    proj_vectors: np.ndarray
+    nr_words: int
+    z_th: float
+    p_th: float
+    clusterings: [Union[Clustering, HierarchicalClustering]] = field(
+        default_factory=list
+        )
+
+    def __post_init__(self):
+        self.nr_words = self.proj_vectors.shape[1]
+
+
+    def __str__(self):
+        self_dict = asdict(self)
+        exclude_keys = ['proj_vectors']
+        return str({key: value
+                    for key, value in self_dict.items()
+                    if key not in exclude_keys})
+
+
+    def __repr__(self):
+        self_dict = asdict(self)
+        exclude_keys = ['proj_vectors']
+        attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
+                              for key in self_dict.keys()
+                              if key not in exclude_keys])
+        return f'Decomposition({attr_str})'
+
+
+    def save_net(self, metric, net_file_path_fmt, transfo=None):
+        net_file_path = gen_net_file_path(net_file_path_fmt, metric,
+                                          transfo=transfo)
+        if transfo is None:
+            transfo = lambda x: x
+        dist_mat = scipy.spatial.distance.squareform(
+            scipy.spatial.distance.pdist(self.proj_vectors, metric=metric))
+        edge_list = []
+        nr_cells = self.proj_vectors.shape[0]
+        for i in range(nr_cells):
+            for j in range(i+1, nr_cells):
+                edge_list.append((i, j, transfo(dist_mat[i, j])))
+        # or save directly line by line?
+        with open(net_file_path, 'w') as f:
+            f.write('\n'.join([
+                ' '.join([str(x) for x in edge])
+                for edge in edge_list]))
+        return net_file_path
+
+
+    def explained_var_plot(self):
+        fig, ax = plt.subplots(1)
+        explained_var_ratio = self.decomposition.explained_variance_ratio_
+        x_plot = np.arange(0, len(explained_var_ratio) + 1)
+        y_plot = np.concatenate([((0,)), explained_var_ratio.cumsum()])
+        ax.plot(x_plot, y_plot, marker='o')
+        return fig, ax
+
+
+    def map_comp_loading(self, lang, nr_plots=5, cmap='plasma',
+                         **plot_kwargs):
+        for i in range(nr_plots):
+            comp_series = pd.Series(self.proj_vectors[:, i],
+                                    index=lang.relevant_cells, name='pca_comp')
+            fig, axes = plt.subplots(
+                ncols=len(lang.list_cc)+1, figsize=(9,3),
+                gridspec_kw={'width_ratios': lang.width_ratios})
+            map_axes = axes[:-1]
+            cax = axes[-1]
+            vmin = self.proj_vectors[:, i].min()
+            vmax = self.proj_vectors[:, i].max()
+            norm = plt.Normalize(vmin=vmin, vmax=vmax)
+
+            for ax, cc in zip(map_axes, lang.list_cc):
+                mask = lang.cells_geodf.index.str.startswith(cc)
+                plot_df = (
+                    lang.cells_geodf.loc[mask].join(comp_series, how='inner'))
+                plot_df.plot(column='pca_comp', ax=ax, norm=norm, cmap=cmap,
+                             **plot_kwargs)
+                ax.set_axis_off()
+
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            _ = fig.colorbar(sm, cax=cax, label='')
+            fig.show()
+
+
+    def add_clustering(self, method, cells_ids, *method_args,
+                       append=True, **method_kwargs):
+        if hasattr(method, 'fit_predict'):
+            method = method(*method_args, **method_kwargs)
+            res = method.fit_predict(self.proj_vectors)
+        elif callable(method):
+            res = method(self.proj_vectors, *method_args, **method_kwargs)
+        else:
+            raise TypeError('Please provide a callable or an object with a fit_predict method')
+        clustering = Clustering(
+            res, cells_ids, repr(method), method_obj=method,
+            method_args=method_args, method_kwargs=method_kwargs)
+        if append or len(self.clusterings) == 0:
+            self.clusterings.append(clustering)
+        else:
+            self.clusterings[-1] = clustering
+        return clustering
+
+
+    def add_scipy_hierarchy(self, cells_ids, **kwargs):
+        clustering = HierarchicalClustering.from_scipy_agglo(
+            self.proj_vectors, cells_ids, **kwargs)
+        self.clusterings.append(clustering)
+        return clustering
+
+
+    def add_oslom_hierarchy(self, metric, net_file_path_fmt, cells_ids,
+                            transfo=None, oslom_opt_params=None):
+        oslom_net_file_path = gen_net_file_path(net_file_path_fmt, metric, transfo=transfo)
+        clustering = HierarchicalClustering.from_oslom_res(
+            oslom_net_file_path, cells_ids, oslom_opt_params=oslom_opt_params)
+        self.clusterings.append(clustering)
+        return clustering
+
+
+    def prep_oslom(self, metric, net_file_path_fmt, transfo=None,
+                   oslom_opt_params=None):
+        data_path = self.save_net(metric, net_file_path_fmt, transfo=transfo)
+        args = (OSLOM_DIR, data_path,)
+        kwargs = {'oslom_opt_params': oslom_opt_params}
+        return args, kwargs
