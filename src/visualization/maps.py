@@ -136,17 +136,24 @@ def get_width_ratios(geodf, cc_list, ratio_lgd=0.05, latlon_proj='epsg:4326'):
     return width_ratios
 
 
-def position_axes(width_ratios, total_width):
+def position_axes(width_ratios, total_width, total_height=None):
     '''
     Positions the axes defined by the `width_ratios` such that they do not
     overlap and the total width fits `total_width`.  Uses an algorithm of
     so-called 'rectangle packing'. `total_width` must be an integer.
     '''
-    int_widths = (width_ratios * total_width / width_ratios.max()).astype(int)
+    max_ratio = width_ratios.max()
+    if max_ratio > 1:
+        norm = max_ratio
+    else:
+        # 4 = max number of countries per line
+        norm = width_ratios.sum() / (1 + len(width_ratios) // 4)
+    int_widths = (width_ratios * total_width / norm).astype(int)
     int_heights = (int_widths / width_ratios).astype(int)
     sizes = list(zip([int(w) for w in int_widths],
                      [int(h) for h in int_heights]))
-    positions = rpack.pack(sizes, max_width=total_width)
+    positions = rpack.pack(
+        sizes, max_width=total_width, max_height=total_height)
     bboxes = np.array([
         [left, bot, w, h]
         for ((left, bot), w, h) in zip(positions, int_widths, int_heights)])

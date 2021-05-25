@@ -3,7 +3,9 @@ import pickle
 import inspect
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
+from typing import List
 import numpy as np
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import pandas as pd
 import geopandas as geopd
@@ -25,7 +27,7 @@ class Region:
     xy_proj: str = 'epsg:3857'
     max_place_area: float = 5e9
     cell_size: float = 50e3
-    shape_bbox: [float] = None
+    shape_bbox: List[float] = None
     shapefile_name: str = 'CNTR_RG_01M_2016_4326.shp'
     shapefile_col: str = 'FID'
     shape_geodf: geopd.GeoDataFrame = None
@@ -96,9 +98,9 @@ class Region:
 class Language:
     lc: str
     readable: str
-    list_cc: [str]
-    regions: [Region]
-    paths: paths_utils.ProjectPaths
+    list_cc: List[str]
+    regions: List[Region]
+    _paths: paths_utils.ProjectPaths
     all_cntr_shapes: InitVar[geopd.GeoDataFrame]
     cc: str = None
     latlon_proj: str = 'epsg:4326'
@@ -116,7 +118,7 @@ class Language:
     word_vectors: np.ndarray = None
     cdf_th: float = 0.99
     width_ratios: np.ndarray = None
-    decompositions: [data_clustering.Decomposition] = field(default_factory=list)
+    decompositions: List[data_clustering.Decomposition] = field(default_factory=list)
     z_th: float = 10
     p_th: float = 0.01
 
@@ -156,6 +158,21 @@ class Language:
             'lc', 'readable', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
             'cell_tokens_th', 'word_vec_var', 'cdf_th']
         return {attr: getattr(self, attr) for attr in list_attr}
+
+
+    @property
+    def paths(self):
+        '''
+        Defined as a property so that when we pass paths to eg a child
+        Decomposition or Clustering, the paths is already partially formatted
+        with the Language attributes.
+        '''
+        self._paths.partial_format(**self.to_dict())
+        return self._paths
+
+    @paths.setter
+    def paths(self, p):
+        self._paths = p
 
 
     def to_pickle(self, save_path_fmt):
@@ -313,13 +330,6 @@ class Language:
         _ = self.get_word_vectors()
 
 
-    def read_global_counts(self, path_fmt):
-        save_path = str(path_fmt).format(
-            kind='global_counts', lc=self.lc, cc='&'.join(self.list_cc))
-        self.global_counts = pd.read_parquet(save_path)
-        return self.global_counts
-
-
     def calc_morans(self, num_cpus=1):
         contiguity = libpysal.weights.Queen.from_dataframe(
             self.cells_geodf.loc[self.relevant_cells])
@@ -391,15 +401,16 @@ class Language:
         self.cleanup(include_global=True, include_regions=False)
 
 
-    def get_maps_pos(self, total_width, ratio_lgd=None):
+    def get_maps_pos(self, total_width, total_height=None, ratio_lgd=None):
         width_ratios = self.get_width_ratios(ratio_lgd=ratio_lgd)
-        return map_viz.position_axes(width_ratios, total_width)
+        return map_viz.position_axes(width_ratios, total_width,
+                                     total_height=total_height)
 
 
-    def map_comp_loading(self, i_decompo=-1, nr_plots=5, cmap='plasma',
-                         total_width=178, **plot_kwargs):
+    def map_comp_loading(self, i_decompo=-1, nr_plots=5, cmap='bwr',
+                         total_width=178, total_height=None, **plot_kwargs):
         normed_bboxes, (total_width, total_height) = self.get_maps_pos(
-            total_width, ratio_lgd=1/10)
+            total_width, total_height=total_height, ratio_lgd=1/10)
         proj_vectors = self.decompositions[i_decompo].proj_vectors
         for i in range(nr_plots):
             comp_series = pd.Series(proj_vectors[:, i],
@@ -412,7 +423,7 @@ class Language:
             cax.set_position(normed_bboxes[-1])
             vmin = proj_vectors[:, i].min()
             vmax = proj_vectors[:, i].max()
-            norm = plt.Normalize(vmin=vmin, vmax=vmax)
+            norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=0)
 
             for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
                 ax.set_position(bbox)
@@ -439,6 +450,8 @@ class Language:
             fig, axes = plt.subplots(
                 len(self.list_cc),
                 figsize=(total_width/10/2.54, total_height/10/2.54))
+            if len(self.list_cc) == 1:
+                axes = (axes,)
 
             if level.clusters_series is None:
                 level.clusters_series = level.get_clusters_series(self.relevant_cells)

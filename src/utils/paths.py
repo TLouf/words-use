@@ -7,6 +7,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def yield_kw_from_fmt_str(fmt_str):
+    '''
+    Yield all keywords from a format string.
+    '''
+    for _, fn, _, _ in Formatter().parse(fmt_str):
+        if fn is not None:
+            yield fn
+
+
 def yield_paramed_matches(file_path_format, params_dict):
     '''
     Generator of named matches of the parameterised format `file_path_format`
@@ -17,13 +26,18 @@ def yield_paramed_matches(file_path_format, params_dict):
     # format, and the values being either the one found in `params_dict`, or a
     # regex named capture group of the parameter.
     pformat = {fn: params_dict.get(fn, f'(?P<{fn}>.+)')
-               for _, fn, _, _ in Formatter().parse(fname)
-               if fn is not None}
+               for fn in yield_kw_from_fmt_str(fname)}
     file_pattern = re.compile(fname.replace('.', r'\.').format(**pformat))
     for f in file_path_format.parent.iterdir():
         match = re.search(file_pattern, f.name)
         if match is not None:
             yield match
+
+
+def partial_format(fmt_str, **kwargs):
+    all_kw = list(yield_kw_from_fmt_str(fmt_str))
+    fmt_dict = {**{kw: f'{{{kw}}}' for kw in all_kw}, **kwargs}
+    return fmt_str.format(**fmt_dict)
 
 
 def format_path(path_fmt, **kwargs):
@@ -45,8 +59,11 @@ class ProjectPaths:
     source_fname_fmt: str = '{kind}_{from}_{to}_{cc}.json.gz'
     counts_fname_fmt: str = '{kind}_lang={lc}_cc={cc}.parquet'
     cluster_fig_fname_fmt: str = (
-        'clusters_lc={lc}_cc={cc}_word_vec_var={word_vec_var}_decomposition'
-        '={decomposition}_method={method_repr}{kwargs_str}.pdf')
+        'clusters_method={method_repr}{kwargs_str}_word_vec_var={word_vec_var}'
+        '_decomposition={decomposition}.pdf')
+    net_fname_fmt: str = (
+        'net_metric={metric}_transfo={transfo_str}_word_vec_var={word_vec_var}'
+        '_decomposition={decomposition}.dat')
     source_fmt: Path = None
     proj_data: Path = None
     ext_data: Path = None
@@ -70,3 +87,11 @@ class ProjectPaths:
         self.figs = self.proj / 'reports' / 'figures'
         self.cluster_fig_fmt = (self.figs / '{lc}' / '{cc}' /
                                 self.cluster_fig_fname_fmt)
+        self.net_fmt = (self.processed_data / '{lc}' / '{cc}' /
+                        self.net_fname_fmt)
+
+
+    def partial_format(self, **kwargs):
+        self.cluster_fig_fmt = Path(partial_format(str(self.cluster_fig_fmt),
+                                                   **kwargs))
+        self.net_fmt = Path(partial_format(str(self.net_fmt), **kwargs))
