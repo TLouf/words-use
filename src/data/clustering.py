@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict, InitVar
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 from itertools import chain
 import os
 import re
@@ -12,6 +12,7 @@ import scipy.spatial.distance
 import pandas as pd
 import esda
 from sklearn.decomposition import PCA
+import graph_tool.all as gt
 import src.visualization.maps as map_viz
 import src.visualization.eval as eval_viz
 from dotenv import load_dotenv
@@ -32,18 +33,23 @@ def gen_oslom_res_path(data_path, oslom_opt_params=None, suffix=''):
     return oslom_res_path
 
 
-def gen_net_file_path(net_file_path_fmt, metric, transfo=None):
+def gen_net_file_path(net_file_path_fmt, decomposition, metric, transfo=None):
     if transfo is None:
-        transfo_str = None
+        transfo_str = 'inverse'
     else:
         transfo_str = transfo.__name__
+    # Remove parentheses for Oslom, couldn't make it parse file names with
+    # parentheses correctly.
+    decomposition_str = str(decomposition).replace('(', '-').replace(')', '')
     oslom_net_file_path = Path(
-        str(net_file_path_fmt).format(metric=metric, transfo_str=transfo_str))
+        str(net_file_path_fmt).format(decomposition=decomposition_str,
+                                      metric=metric, transfo_str=transfo_str)
+        )
     return oslom_net_file_path
 
 
 def run_oslom(oslom_dir, data_path, res_path=None, oslom_opt_params=None,
-              directional=False, silent=False):
+              directional=False):
     '''
     Run the compiled OSLOM located in `oslom_dir` on the net<ork data contained
     in `data_path`, saving the results in `res_path`.
@@ -55,14 +61,12 @@ def run_oslom(oslom_dir, data_path, res_path=None, oslom_opt_params=None,
             data_path, oslom_opt_params=oslom_opt_params)
     dir_prefix = (not directional) * 'un'
     oslom_exec_path = oslom_dir / f'oslom_{dir_prefix}dir'
+    # Beware data_path and res_path must be correct file names for bash, putting
+    # them in quotation marks raises problems in OSLOM, which I couldn't fix.
     cmd_list = [str(oslom_exec_path), '-f',
                 str(data_path), '-o', str(res_path), '-w'] + oslom_opt_params
-    # run_kwargs = {'check': True}
-    run_kwargs = {}
-    if silent:
-        run_kwargs['stdout'] = subprocess.DEVNULL
-    # p = subprocess.run(cmd_list, **run_kwargs)
-    p = subprocess.Popen(cmd_list **run_kwargs)
+    f = open(data_path.parent / data_path.name.replace('.dat', '.log'), 'w')
+    p = subprocess.Popen(cmd_list, stdout=f, stderr=f)
     return p
 
 
@@ -103,6 +107,25 @@ def read_oslom_res(oslom_res_path):
     if len(cluster_dict) == 0:
         raise FileNotFoundError(f'There is no result in {oslom_res_path}.')
     return cluster_dict
+
+
+def run_sbm(data_path, rec_types=None, nr_merge_split=10):
+    if rec_types is None:
+        rec_types = ["real-normal"]
+    G = gt.graph_tool.load_graph_from_csv(
+        str(data_path), strip_whitespace=False, csv_options={'delimiter': ' '},
+        eprop_names=['weight'], eprop_types=['float'],)
+    state = gt.minimize_nested_blockmodel_dl(
+        G, state_args=dict(recs=[G.ep.weight], rec_types=rec_types))
+    # L1 = state.entropy()
+
+    # # improve solution with merge-split
+    # impr_state = state.copy(bs=state.get_bs() + [np.zeros(1)] * 4, sampling=True)
+    # for _ in range(nr_merge_split):
+    #     _ = impr_state.multiflip_mcmc_sweep(niter=10, beta=np.inf)
+    # L2 = state.entropy()
+    # print(L2 - L1)
+    return state
 
 
 def get_clusters_agg(cutree):
@@ -155,8 +178,8 @@ class Clustering:
     kwargs_str: str = None
 
     def __post_init__(self, cells_ids):
-        # if cells_ids is not None:
-        self.clusters_series = self.get_clusters_series(cells_ids)
+        self.cell_dict = self.get_cell_dict(cells_ids)
+        self.clusters_series = self.get_clusters_series()
         if self.kwargs_str is None:
             self.kwargs_str = '_params=({})'.format(
                 '_'.join([f'{key}={value}'
@@ -179,12 +202,7 @@ class Clustering:
         return f'Clustering({attr_str})'
 
 
-    def get_clusters_series(self, cells_ids):
-        '''
-        Prepares the GeoDataFrame `geodf` to be passed to `overlap_clusters` or
-        `interactive.clusters`, by adding a column for the cluster labels, allowing
-        for overlapping clusters.
-        '''
+    def get_cell_dict(self, cells_ids):
         if isinstance(self.clusters_data, np.ndarray):
             cell_dict = {
                 cell_id: [clust]
@@ -205,7 +223,12 @@ class Clustering:
                 clustering), or a dictionary mapping clusters to a list of
                 cells, or cells to a list of clusters''')
 
-        clusters_series = pd.Series(cell_dict, name='clusters')
+        self.cell_dict = cell_dict
+        return self.cell_dict
+
+
+    def get_clusters_series(self):
+        clusters_series = pd.Series(self.cell_dict, name='clusters')
         self.nr_clusters = clusters_series.apply(np.max).max() + 1
         self.clusters_series = (
             clusters_series.apply(lambda x: '+'.join([str(c+1) for c in x])))
@@ -268,7 +291,11 @@ class Clustering:
             gen_colors_fun = lambda n: list(plt.get_cmap(cmap, n).colors)
         nr_cats = len(unique_labels)
         if 'homeless' in unique_labels:
-            colors = gen_colors_fun(nr_cats - 1) + [(0.5, 0.5, 0.5, 1)]
+            # Cover case in which only homeless cells.
+            if nr_cats == 1:
+                colors = [(0.5, 0.5, 0.5, 1)]
+            else:
+                colors = gen_colors_fun(nr_cats - 1) + [(0.5, 0.5, 0.5, 1)]
         else:
             colors = gen_colors_fun(nr_cats)
 
@@ -344,7 +371,7 @@ class Clustering:
 
 @dataclass
 class HierarchicalClustering:
-    levels: [Clustering]
+    levels: List[Clustering]
     method_repr: str
     method_args: list = None
     method_kwargs: dict = None
@@ -402,23 +429,49 @@ class HierarchicalClustering:
         oslom_res_path = gen_oslom_res_path(
             oslom_net_file_path, oslom_opt_params=oslom_opt_params)
         _ = run_oslom(OSLOM_DIR, oslom_net_file_path, oslom_res_path,
-                      oslom_opt_params=oslom_opt_params, silent=True)
+                      oslom_opt_params=oslom_opt_params)
         levels_dict = read_oslom_res(oslom_res_path)
         levels = [Clustering(lvl, cells_ids, method_repr)
                   for lvl in levels_dict.values()]
         return cls(levels, method_repr,
                    kwargs_str=''.join(oslom_opt_params))
 
+
     @classmethod
-    def from_oslom_res(cls, oslom_net_file_path, cells_ids,
-                       oslom_opt_params=None):
+    def from_oslom_res(cls, oslom_net_file_path, cells_ids, metric,
+                       transfo=None, oslom_opt_params=None):
+        if transfo is None:
+            transfo_str = 'inverse'
+        else:
+            transfo_str = transfo.__name__
         if oslom_opt_params is None:
             oslom_opt_params = []
-        kwargs_str = ''.join(oslom_opt_params)
+        kwargs_str = f'_metric={metric}_transfo={transfo_str}' + ''.join(oslom_opt_params)
         method_repr = 'oslom'
         oslom_res_path = gen_oslom_res_path(
             oslom_net_file_path, oslom_opt_params=oslom_opt_params)
         levels_dict = read_oslom_res(oslom_res_path)
+        levels = [Clustering(lvl, cells_ids, method_repr, kwargs_str=kwargs_str)
+                  for lvl in levels_dict.values()]
+        return cls(levels, method_repr, kwargs_str=kwargs_str)
+
+
+    @classmethod
+    def from_sbm_res(cls, state, cells_ids, **sbm_kwargs):
+        '''
+        From the output of `sbm_run`, state
+        '''
+        method_repr = 'sbm'
+        kwargs = {**sbm_kwargs, **{'transfo': sbm_kwargs['transfo'].__name__}}
+        kwargs_str = '_' + '_'.join([f'{key}={value}'
+                                     for key, value in kwargs.items()])
+        levels = state.get_bs()
+        levels_dict = {}
+        cells_clusters = np.asarray(levels[0])
+        levels_dict[0] = cells_clusters.copy()
+        for l in range(1, len(levels)):
+            cells_clusters = np.asarray([levels[l][c] for c in cells_clusters])
+            levels_dict[l] = cells_clusters.copy()
         levels = [Clustering(lvl, cells_ids, method_repr, kwargs_str=kwargs_str)
                   for lvl in levels_dict.values()]
         return cls(levels, method_repr, kwargs_str=kwargs_str)
@@ -478,7 +531,7 @@ class Decomposition:
     nr_words: int
     z_th: float
     p_th: float
-    clusterings: [Union[Clustering, HierarchicalClustering]] = field(
+    clusterings: List[Union[Clustering, HierarchicalClustering]] = field(
         default_factory=list
         )
 
@@ -504,18 +557,20 @@ class Decomposition:
 
 
     def save_net(self, metric, net_file_path_fmt, transfo=None):
-        net_file_path = gen_net_file_path(net_file_path_fmt, metric,
-                                          transfo=transfo)
+        net_file_path = gen_net_file_path(
+            net_file_path_fmt, self.decomposition, metric, transfo=transfo)
         if transfo is None:
-            transfo = lambda x: x
-        dist_mat = scipy.spatial.distance.squareform(
-            scipy.spatial.distance.pdist(self.proj_vectors, metric=metric))
+            transfo = lambda x: 1 / x
+        dist_vec = scipy.spatial.distance.pdist(self.proj_vectors,
+                                                metric=metric)
+        sim_mat = scipy.spatial.distance.squareform(transfo(dist_vec))
         edge_list = []
         nr_cells = self.proj_vectors.shape[0]
         for i in range(nr_cells):
             for j in range(i+1, nr_cells):
-                edge_list.append((i, j, transfo(dist_mat[i, j])))
+                edge_list.append((i, j, sim_mat[i, j]))
         # or save directly line by line?
+        net_file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(net_file_path, 'w') as f:
             f.write('\n'.join([
                 ' '.join([str(x) for x in edge])
@@ -538,7 +593,7 @@ class Decomposition:
             comp_series = pd.Series(self.proj_vectors[:, i],
                                     index=lang.relevant_cells, name='pca_comp')
             fig, axes = plt.subplots(
-                ncols=len(lang.list_cc)+1, figsize=(9,3),
+                ncols=len(lang.list_cc)+1, figsize=(9, 3),
                 gridspec_kw={'width_ratios': lang.width_ratios})
             map_axes = axes[:-1]
             cax = axes[-1]
@@ -585,18 +640,25 @@ class Decomposition:
         return clustering
 
 
+    def prep_oslom(self, metric, net_file_path_fmt, transfo=None):
+        data_path = self.save_net(metric, net_file_path_fmt, transfo=transfo)
+        return OSLOM_DIR, data_path
+
+
     def add_oslom_hierarchy(self, metric, net_file_path_fmt, cells_ids,
                             transfo=None, oslom_opt_params=None):
-        oslom_net_file_path = gen_net_file_path(net_file_path_fmt, metric, transfo=transfo)
+        oslom_net_file_path = gen_net_file_path(
+            net_file_path_fmt, self.decomposition, metric, transfo=transfo)
         clustering = HierarchicalClustering.from_oslom_res(
-            oslom_net_file_path, cells_ids, oslom_opt_params=oslom_opt_params)
+            oslom_net_file_path, cells_ids, metric, transfo=transfo,
+            oslom_opt_params=oslom_opt_params)
         self.clusterings.append(clustering)
         return clustering
-
-
-    def prep_oslom(self, metric, net_file_path_fmt, transfo=None,
-                   oslom_opt_params=None):
-        data_path = self.save_net(metric, net_file_path_fmt, transfo=transfo)
-        args = (OSLOM_DIR, data_path,)
-        kwargs = {'oslom_opt_params': oslom_opt_params}
-        return args, kwargs
+    
+    
+    def add_sbm_hierarchy(self, state, cells_ids, **sbm_kwargs):
+        clustering = HierarchicalClustering.from_sbm_res(
+            state, cells_ids, **sbm_kwargs)
+        self.clusterings.append(clustering)
+        return clustering
+    

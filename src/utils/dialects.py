@@ -401,6 +401,22 @@ class Language:
         self.cleanup(include_global=True, include_regions=False)
 
 
+    def get_clust_words(self, i_decompo=-1, i_clust=-1, i_lvl=0):
+        decomp = self.decompositions[i_decompo]
+        clustering = decomp.clusterings[i_clust]
+        levels = getattr(clustering, 'levels', [clustering])
+        cluster_labels = levels[i_lvl].clusters_series
+        is_regional = ((self.global_counts['z_value'] > decomp.z_th)
+                       & (self.global_counts['p_value'] < decomp.p_th))
+        clust_words = self.global_counts.loc[is_regional].copy()
+        for lbl in np.unique(cluster_labels):
+            cluster_mask = cluster_labels == lbl
+            clust_center = decomp.proj_vectors[cluster_mask, :].mean(axis=0)
+            words_cluster = decomp.decomposition.inverse_transform(clust_center)
+            clust_words[f'cluster{lbl}'] = words_cluster
+        return clust_words
+
+
     def get_maps_pos(self, total_width, total_height=None, ratio_lgd=None):
         width_ratios = self.get_width_ratios(ratio_lgd=ratio_lgd)
         return map_viz.position_axes(width_ratios, total_width,
