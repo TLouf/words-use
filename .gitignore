@@ -7,6 +7,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+.cenv/
 .venv/
 env/
 build/
@@ -74,7 +75,9 @@ target/
 .ipynb_checkpoints/
 
 # exclude data from source control by default
-/data/
+data/**
+!data/external/
+!data/external/countries.json
 
 # Mac OS-specific storage files
 .DS_Store

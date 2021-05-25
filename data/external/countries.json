@@ -1,0 +1,260 @@
+{
+    "US": {
+        "readable": "the USA",
+        "xy_proj": "ESRI:102005",
+        "local_langs": ["en"],
+        "timezone": "CET",
+        "shape_bbox": [-126, 20, -65, 51],
+        "cell_size": 75e3,
+        "max_place_area": 2.5e10
+        },
+	"CA": {
+        "readable": "Canada",
+        "xy_proj": "EPSG:3978",
+        "local_langs": ["en", "fr"],
+        "shape_bbox": [-133, 41, -52, 55.5],
+        "cell_size": 75e3,
+        "max_place_area": 2.5e10,
+        "regions": {
+            "Quebec": {
+                "readable": "Quebec",
+                "xy_proj": "EPSG:6624",
+                "timezone": "EST",
+                "local_langs": ["en", "fr"],
+                "shapefile_name": "Quebec.shp",
+                "shapefile_name_col": "PRENAME",
+                "shapefile_name_val": "Quebec",
+                "max_place_area": 1e10
+                }
+            }
+        },
+    "IE": {
+        "readable": "Ireland",
+        "xy_proj": "EPSG:2157",
+        "local_langs": ["en"],
+        "timezone": "Europe/Dublin",
+        "max_place_area": 5e9
+        },
+    "GB": {
+        "readable": "Great Britain",
+        "xy_proj": "EPSG:27700",
+        "local_langs": ["en"],
+        "timezone": "Europe/London",
+        "max_place_area": 5e9,
+        "shapefile_val": "UK",
+        "shapefile_dict": {
+            "val": "UK"
+            }
+        },
+    "JM": {
+        "readable": "Jamaica",
+        "xy_proj": "EPSG:24200",
+        "local_langs": ["en"],
+        "max_place_area": 2e10,
+        "cell_size": 5e6
+        },
+    "BZ": {
+        "readable": "Belize",
+        "xy_proj": "EPSG:32616",
+        "local_langs": ["en"],
+        "max_place_area": 5e10,
+        "cell_size": 500e3
+        },
+    "IN": {
+        "readable": "India",
+        "xy_proj": "EPSG:24378",
+        "local_langs": ["en"],
+        "max_place_area": 2.5e10,
+        "cell_size": 75e3
+        }, 
+    "NZ": {
+        "readable": "New Zealand",
+        "xy_proj": "EPSG:27200",
+        "local_langs": ["en"],
+        "timezone": "Pacific/Auckland",
+        "max_place_area": 5e9
+        },
+    "AU": {
+        "readable": "Australia",
+        "xy_proj": "EPSG:3112",
+        "local_langs": ["en"],
+        "max_place_area": 2.5e10,
+        "cell_size": 75e3
+        },
+    "ZA": {
+        "readable": "South Africa",
+        "xy_proj": "EPSG:32734",
+        "local_langs": ["en", "af", "zu", "xh"],
+        "timezone": "Africa/Johannesburg",
+        "max_place_area": 2.5e10,
+        "cell_size": 75e3
+        },
+    "NG": {
+        "readable": "Nigeria",
+        "xy_proj": "EPSG:32632",
+        "local_langs": ["en"],
+        "max_place_area": 2.5e10,
+        "cell_size": 75e3
+        },
+    "AO": {
+        "readable": "Angola",
+        "xy_proj": "EPSG:9159",
+        "local_langs": ["pt"],
+        "max_place_area": 5e9
+        },
+    "LV": {
+        "readable": "Latvia",
+        "xy_proj": "EPSG:3059",
+        "local_langs": ["lv", "ru"],
+        "timezone": "EET"
+        },
+    "EE": {
+        "readable": "Estonia",
+        "xy_proj": "EPSG:3059",
+        "local_langs": ["et", "ru"],
+        "timezone": "EET"
+        },
+    "CY": {
+        "readable": "Cyprus",
+        "xy_proj": "EPSG:6312",
+        "local_langs": ["el", "tr"],
+        "timezone": "Asia/Nicosia"
+        },
+    "DZ": {
+        "readable": "Algeria",
+        "xy_proj": "EPSG:30729",
+        "local_langs": ["ar", "fr"],
+        "timezone": "Africa/Algiers",
+        "max_place_area": 1e10
+        },
+    "MA": {
+        "readable": "Morocco",
+        "xy_proj": "EPSG:26191",
+        "local_langs": ["ar", "fr"],
+        "timezone": "Africa/Casablanca",
+        "max_place_area": 1e10
+        },
+    "FI": {
+        "readable": "Finland",
+        "xy_proj": "EPSG:3067",
+        "local_langs": ["fi", "sv", "ru"],
+        "timezone": "Europe/Helsinki",
+        "max_place_area": 3e10
+        },
+    "IL": {
+        "readable": "Israel",
+        "xy_proj": "EPSG:2039",
+        "local_langs": ["iw", "ar", "en", "fr", "ru"],
+        "timezone": "Asia/Jerusalem"
+        },
+    "LB": {
+        "readable": "Lebanon",
+        "xy_proj": "EPSG:22780",
+        "local_langs": ["ar", "fr"],
+        "timezone": "Asia/Beirut"
+        },
+    "LU": {
+        "readable": "Luxembourg",
+        "xy_proj": "EPSG:2169",
+        "local_langs": ["fr", "de", "lb"],
+        "timezone": "Europe/Luxembourg"
+        },
+    "PY": {
+        "readable": "Paraguay",
+        "xy_proj": "EPSG:32720",
+        "local_langs": ["es", "gn", "pt"],
+        "timezone": "America/Asuncion",
+        "max_place_area": 1e10
+        },
+    "UY": {
+        "readable": "Uruguay",
+        "xy_proj": "EPSG:5383",
+        "local_langs": ["es", "pt"],
+        "timezone": "America/Montevideo"
+        },
+    "MY": {
+        "readable": "Malaysia",
+        "xy_proj": "EPSG:23834",
+        "local_langs": ["ms", "en", "zh"],
+        "timezone": "MST",
+        "max_place_area": 5e10
+        },
+    "ID": {
+        "readable": "Indonesia",
+        "xy_proj": "EPSG:3001",
+        "local_langs": ["id", "ms", "jw", "su"],
+        "timezone": "Asia/Jakarta",
+        "max_place_area": 5e10,
+        "min_poly_area": 4e9
+        },
+    "ES": {
+        "readable": "Spain",
+        "xy_proj": "EPSG:2062",
+        "local_langs": ["es", "ca"],
+        "timezone": "CET",
+        "regions": {
+            "Catalonia": {
+                "readable": "Catalonia",
+                "xy_proj": "EPSG:2062",
+                "timezone": "CET",
+                "local_langs": ["es", "ca"],
+                "shapefile_name": "recintos_autonomicas_inspire_peninbal_etrs89.shp",
+                "shapefile_name_col": "NAMEUNIT",
+                "shapefile_name_val": "Cataluña"
+                },
+            "Valencian Community": {
+                "readable": "Valencian Community",
+                "xy_proj": "EPSG:2062",
+                "timezone": "CET",
+                "local_langs": ["es", "ca"],
+                "shapefile_name": "recintos_autonomicas_inspire_peninbal_etrs89.shp",
+                "shapefile_name_col": "NAMEUNIT",
+                "shapefile_name_val": "Comunitat Valenciana"
+                },
+            "Balearic islands": {
+                "readable": "Balearic islands",
+                "xy_proj": "EPSG:2062",
+                "timezone": "CET",
+                "local_langs": ["es", "ca"],
+                "shapefile_name": "recintos_autonomicas_inspire_peninbal_etrs89.shp",
+                "shapefile_name_col": "NAMEUNIT",
+                "shapefile_name_val": "Illes Balears"
+                },
+            "Galicia": {
+                "readable": "Galicia",
+                "xy_proj": "EPSG:2062",
+                "timezone": "CET",
+                "local_langs": ["es", "gl"],
+                "shapefile_name": "recintos_autonomicas_inspire_peninbal_etrs89.shp",
+                "shapefile_name_col": "NAMEUNIT",
+                "shapefile_name_val": "Galicia"
+                },
+            "Basque country": {
+                "readable": "Basque country",
+                "xy_proj": "EPSG:2062",
+                "timezone": "CET",
+                "local_langs": ["es", "eu"],
+                "shapefile_name": "recintos_autonomicas_inspire_peninbal_etrs89.shp",
+                "shapefile_name_col": "NAMEUNIT",
+                "shapefile_name_val": "País Vasco/Euskadi"
+                }
+            }
+        },
+    "SG": {
+        "readable": "Singapore",
+        "xy_proj": "EPSG:3414",
+        "min_poly_area": 0,
+        "max_place_area": 5e8,
+        "local_langs": ["en", "zh", "ms", "ta"],
+        "timezone": "Asia/Singapore",
+        "shapefile_name": "SG.shp"
+        },
+    "FR": {
+        "readable": "France",
+        "xy_proj": "EPSG:2154",
+        "local_langs": ["fr"],
+        "timezone": "Europe/Paris", 
+        "shape_bbox": [-9.86, 41.15, 10.38, 51.56],
+        "max_place_area": 5e9
+        }
+}
