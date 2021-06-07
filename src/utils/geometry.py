@@ -69,7 +69,7 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     # geometry, create a new dataframe out of it with the bounds of this series.
     # Then the values attribute is a one line matrix, so we take the first
     # line and get the bounds' in the format (x_min, y_min, x_max, y_max)
-    x_min, y_min, x_max, y_max = shape_df['geometry'].bounds.values[0]
+    x_min, y_min, x_max, y_max = shape_df['geometry'].total_bounds
     # We want to cover at least the whole shape of the area, because if we want
     # to restrict just to the shape we can then intersect the grid with its
     # shape. Hence the x,ymax+cell_size in the arange.
@@ -116,8 +116,9 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     cells_df.index = shape_df.cc + '.' + cells_df.index.astype(str)
     cells_df['cell_id'] = cells_df.index
     if intersect:
-        cells_in_shape_df = geopd.overlay(
-            cells_df, shape_df[['geometry']], how='intersection')
+        # cells_in_shape_df = geopd.overlay(
+        #     cells_df, shape_df[['geometry']], how='intersection')
+        cells_in_shape_df = geopd.clip(cells_df, shape_df)
         cells_in_shape_df.index = cells_in_shape_df['cell_id']
         cells_in_shape_df.cell_size = cell_size
     else:
@@ -140,7 +141,7 @@ def extract_shape(raw_shape_df, cc, bbox=None, latlon_proj='epsg:4326',
     shape_df = raw_shape_df.copy()
     if bbox:
         bbox_geodf = geopd.GeoDataFrame(geometry=[box(*bbox)], crs=latlon_proj)
-        shape_df = geopd.overlay(shape_df, bbox_geodf, how='intersection')
+        shape_df = geopd.clip(shape_df, bbox_geodf)
     shape_df = shape_df.to_crs(xy_proj)
     shapely_geo = shape_df.geometry.iloc[0]
     if min_area is None or simplify_tol is None:
@@ -212,9 +213,9 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
                             & (places_df['min_lat'] <= shape_max_lat)
                             & (places_df['min_lat'] >= shape_min_lat))
     is_top_right_in_shape = ((places_df['max_lon'] <= shape_max_lon)
-                            & (places_df['max_lon'] >= shape_min_lon)
-                            & (places_df['max_lat'] <= shape_max_lat)
-                            & (places_df['max_lat'] >= shape_min_lat))
+                             & (places_df['max_lon'] >= shape_min_lon)
+                             & (places_df['max_lat'] <= shape_max_lat)
+                             & (places_df['max_lat'] >= shape_min_lat))
     # Add this mask to keep country when there are no other used bbox places,
     # for small countries where we keep a single cell we need to keep it, and
     # for larger countries it will be discarded with the `max_place_area` filter
