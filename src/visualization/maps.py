@@ -143,11 +143,15 @@ def position_axes(width_ratios, total_width, total_height=None):
     so-called 'rectangle packing'. `total_width` must be an integer.
     '''
     max_ratio = width_ratios.max()
+    sum_ratios = width_ratios.sum()
     if max_ratio > 1:
-        norm = max_ratio
+        if sum_ratios < 1.6 * max_ratio:
+            norm = sum_ratios
+        else:
+            norm = max_ratio
     else:
         # 4 = max number of countries per line
-        norm = width_ratios.sum() / (1 + len(width_ratios) // 4)
+        norm = sum_ratios / (1 + len(width_ratios) // 4)
     int_widths = (width_ratios * total_width / norm).astype(int)
     int_heights = (int_widths / width_ratios).astype(int)
     sizes = list(zip([int(w) for w in int_widths],
