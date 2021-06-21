@@ -254,7 +254,18 @@
         "xy_proj": "EPSG:2154",
         "local_langs": ["fr"],
         "timezone": "Europe/Paris", 
-        "shape_bbox": [-9.86, 41.15, 10.38, 51.56],
-        "max_place_area": 5e9
+        "shape_bbox": [-9.86, 41.15, 10.38, 51.56]
+        },
+    "CH": {
+        "readable": "Switzerland",
+        "xy_proj": "EPSG:21781",
+        "local_langs": ["de", "fr", "it"],
+        "timezone": "CET"
+        },
+    "BE": {
+        "readable": "Belgium",
+        "xy_proj": "EPSG:3812",
+        "local_langs": ["fr", "nl"],
+        "timezone": "CET"
         }
 }
