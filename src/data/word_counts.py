@@ -2,6 +2,7 @@ import re
 import numpy as np
 import geopandas as geopd
 from shapely.geometry import Point
+from esda.getisord import G_Local
 import src.data.text_process as text_process
 
 def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
@@ -226,18 +227,19 @@ def to_vectors(cell_counts, mask):
     word_vectors = (
         cell_counts.join(mask_series, how='inner')[['count']]
                    .unstack(level='cell_id')
-                   .fillna(0)
                    .reindex(mask_series.index)
+                   .fillna(0)
                    .astype(int)
                    .to_numpy())
     return word_vectors.T
 
 
-def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='normed_freqs'):
+def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='', w=None):
     '''
     Transforms `word_vectors`, the matrix of cell counts obtained with
     `to_vectors` above, to cell proportions, and a metric given by
-    `word_vec_var`, if given.
+    `word_vec_var`, if given. If not, or if it does not match one of the
+    implemented metrics, return the  proportions.
     '''
     word_vectors = (word_counts_vectors.T / word_counts_vectors.sum(axis=1)).T
 
@@ -245,15 +247,24 @@ def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='normed_freqs'):
         reg_distrib = (reg_counts['count'] / reg_counts['count'].sum()).values
         word_vectors -= reg_distrib
         word_vectors = word_vectors / np.abs(word_vectors).max(axis=0)
+
     elif word_vec_var == 'polar':
         reg_distrib = (reg_counts['count'] / reg_counts['count'].sum()).values
         word_vectors = ((word_vectors - reg_distrib)
                         / (word_vectors + reg_distrib))
-    else:
+
+    elif word_vec_var == 'Gi_star':
+        ## permutations??
+        for idx_word in range(word_vectors.shape[1]):
+            y = word_vectors[:, idx_word]
+            lg_star = G_Local(y, w, transform='R', star=True, permutations=0)
+            word_vectors[:, idx_word] = lg_star.Zs
+
+    elif 'tf-idf' in word_vec_var:
         total_nr_cells = reg_counts['nr_cells'].max()
         doc_freqs = (reg_counts['nr_cells'] / total_nr_cells).values
         if word_vec_var == 'smooth_tf-idf':
-            word_vectors = np.log(1+word_vectors) * np.log(1 + 1/doc_freqs)
+            word_vectors = np.log(1 + word_vectors) * np.log(1 + 1/doc_freqs)
         elif word_vec_var == 'raw_tf-idf':
             word_vectors = word_vectors * np.log(1/doc_freqs)
 
