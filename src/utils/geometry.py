@@ -141,7 +141,9 @@ def extract_shape(raw_shape_df, cc, bbox=None, latlon_proj='epsg:4326',
     shape_df = raw_shape_df.copy()
     if bbox:
         bbox_geodf = geopd.GeoDataFrame(geometry=[box(*bbox)], crs=latlon_proj)
-        shape_df = geopd.clip(shape_df, bbox_geodf)
+        # Cannot clip because input data may be topologically invalid (case of
+        # Canada).
+        shape_df = geopd.overlay(shape_df, bbox_geodf, how='intersection')
     shape_df = shape_df.to_crs(xy_proj)
     shapely_geo = shape_df.geometry.iloc[0]
     if min_area is None or simplify_tol is None:
