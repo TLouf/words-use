@@ -151,8 +151,7 @@ def get_jpt_address():
     '''
     # from jupyter_server import serverapp
     # serverapp.list_running_servers()
-    env_path = (os.environ.get('VIRTUAL_ENV')
-                or os.environ.get('CONDA_DEFAULT_ENV'))
+    env_path = os.environ.get('VIRTUAL_ENV') or os.environ.get('CONDA_PREFIX')
     serv_list = subprocess.run([env_path + '/bin/jupyter', 'server', 'list'],
                                capture_output=True, check=True)
     all_lines = serv_list.stdout.decode().split('\n')
