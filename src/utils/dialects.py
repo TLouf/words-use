@@ -167,6 +167,7 @@ class Language:
         Decomposition or Clustering, the paths is already partially formatted
         with the Language attributes.
         '''
+        self._paths = paths_utils.ProjectPaths()
         self._paths.partial_format(**self.to_dict())
         return self._paths
 
