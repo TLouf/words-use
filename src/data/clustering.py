@@ -12,6 +12,7 @@ import scipy.spatial.distance
 import pandas as pd
 import esda
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
 import graph_tool.all as gt
 import src.visualization.maps as map_viz
 import src.visualization.eval as eval_viz
@@ -164,6 +165,13 @@ def chunk_moran(list_i, word_vectors, contiguity):
     return moran_dict
 
 
+def broken_stick(n_components):
+    var = 1 / n_components * np.ones(n_components)
+    for i in range(2, n_components+1):
+        var[-i] = var[-i+1] + 1 / (n_components + 1 - i)
+    return var / n_components
+
+
 @dataclass
 class Clustering:
     clusters_data: Union[dict, np.ndarray]
@@ -176,6 +184,7 @@ class Clustering:
     nr_clusters: int = None
     prop_homeless: float = None
     kwargs_str: str = None
+    score: float = None
 
     def __post_init__(self, cells_ids):
         self.cell_dict = self.get_cell_dict(cells_ids)
@@ -528,15 +537,16 @@ class Decomposition:
     word_vec_var: str
     decomposition: PCA
     proj_vectors: np.ndarray
-    nr_words: int
+    word_mask: np.ndarray
     z_th: float
     p_th: float
+    nr_comps: int = 0
     clusterings: List[Union[Clustering, HierarchicalClustering]] = field(
         default_factory=list
         )
 
     def __post_init__(self):
-        self.nr_words = self.proj_vectors.shape[1]
+        self.nr_comps = self.proj_vectors.shape[1]
 
 
     def __str__(self):
@@ -623,19 +633,27 @@ class Decomposition:
             res = method(self.proj_vectors, *method_args, **method_kwargs)
         else:
             raise TypeError('Please provide a callable or an object with a fit_predict method')
-        clustering = Clustering(
+        clust = Clustering(
             res, cells_ids, repr(method), method_obj=method,
             method_args=method_args, method_kwargs=method_kwargs)
+        cluster_labels = clust.clusters_series.values.astype(int) - 1
+        clust.score = silhouette_score(self.proj_vectors, cluster_labels,
+                                       metric='euclidean')
         if append or len(self.clusterings) == 0:
-            self.clusterings.append(clustering)
+            self.clusterings.append(clust)
         else:
-            self.clusterings[-1] = clustering
-        return clustering
+            self.clusterings[-1] = clust
+        return clust
 
 
     def add_scipy_hierarchy(self, cells_ids, **kwargs):
         clustering = HierarchicalClustering.from_scipy_agglo(
             self.proj_vectors, cells_ids, **kwargs)
+        metric = kwargs.get('metric', 'euclidean')
+        for clust in clustering.levels:
+            cluster_labels = clust.clusters_series.values.astype(int) - 1
+            clust.score = silhouette_score(self.proj_vectors, cluster_labels,
+                                           metric=metric)
         self.clusterings.append(clustering)
         return clustering
 
