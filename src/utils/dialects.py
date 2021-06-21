@@ -500,3 +500,9 @@ class Language:
             axes_list.append(axes)
 
         return fig_list, axes_list
+
+
+    def silhouette_plot(self, i_decompo=-1, i_clust=-1, metric=None):
+        decomp = self.decompositions[i_decompo]
+        clust = decomp.clusterings[i_clust]
+        return clust.silhouette_plot(decomp.proj_vectors, metric=metric)
