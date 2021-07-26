@@ -1,8 +1,9 @@
 import re
 import numpy as np
+import geopandas as geopd
 import pandas as pd
 
-def distribs_extract(list_fips, freq_file_format):
+def old_distribs_extract(list_fips, freq_file_format):
     '''
     Reads all data files corresponding to `freq_file_format`, cleans them and
     calculate global counts.
@@ -51,3 +52,26 @@ def distribs_extract(list_fips, freq_file_format):
     counties_counts = pd.DataFrame(counties_counts).set_index(['word',
                                                                'cell_id'])
     return global_words, counties_dict, counties_counts
+
+
+def get_counties_geodf(cnty_fname, state_fname, shp_file_format,
+                       xy_proj='epsg:3857'):
+    us_counties = geopd.read_file(str(shp_file_format).format(cnty_fname))
+    us_states = geopd.read_file(str(shp_file_format).format(state_fname))
+    us_states = (us_states.astype({'STATEFP': int})
+                          .set_index('STATEFP')['NAME']
+                          .rename('state_name'))
+    us_counties = (us_counties.astype({'GEOID': int, 'STATEFP': int})
+                              .rename(columns={'GEOID': 'cell_id',
+                                               'NAME': 'name'}))
+    # Exclude all overseas islands and Alaska
+    to_exclude = ((us_counties['STATEFP'].isin((15, 2)))
+                  | (us_counties['STATEFP'] > 56))
+    cols = ['cell_id', 'state_name','name', 'geometry']
+    us_counties = (us_counties.loc[~to_exclude]
+                              .to_crs(xy_proj)
+                              .set_index('cell_id', drop=False)
+                              .join(us_states, on='STATEFP')
+                              .loc[:, cols]
+                              .sort_index())
+    return us_counties
