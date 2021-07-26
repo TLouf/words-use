@@ -296,13 +296,27 @@ class Language:
         return self.width_ratios
 
 
-    def get_word_counts_vectors(self):
+    def get_word_counts_vectors(self, k=10):
         if self.word_counts_vectors is None:
             self.cell_counts = self.get_cell_counts()
-            counts = self.global_counts['count']
-            cdf_mask = (counts / counts.sum()).cumsum() < self.cdf_th
-            self.word_counts_vectors = word_counts.to_vectors(self.cell_counts,
-                                                              cdf_mask)
+            self.cell_counts['exists'] = self.cell_counts['count'] >= 1
+            grouped_counts = self.cell_counts.groupby('cell_id')
+            max_rank = grouped_counts['exists'].sum().min()
+            word_ranks_by_cell = grouped_counts['count'].rank(ascending=False)
+            words_to_keep = (
+                word_ranks_by_cell.loc[word_ranks_by_cell <= max_rank]
+                                  .index
+                                  .unique(level='word'))
+            ## TODO: this is not very satisfactory
+            count_th = k * self.relevant_cells.shape[0]
+            tail_mask = (self.global_counts.index.isin(words_to_keep)
+                         & (self.global_counts['count'] > count_th))
+            self.cell_counts['cell_sum'] = grouped_counts['count'].transform('sum')
+            dropped_cols = ['exists', 'cell_sum']
+            self.cell_counts = self.cell_counts.drop(columns=dropped_cols)
+            self.global_counts['tail_mask'] = tail_mask
+            self.word_counts_vectors = word_counts.to_vectors(
+                self.cell_counts, self.global_counts['tail_mask'])
         return self.word_counts_vectors
 
 
@@ -314,20 +328,25 @@ class Language:
 
 
     def get_word_vectors(self):
+        if self.word_vectors is None:
         self.word_counts_vectors = self.get_word_counts_vectors()
-        counts = self.global_counts['count']
-        cdf_mask = (counts / counts.sum()).cumsum() < self.cdf_th
-        # this is done here and not above because Language can be loaded from
-        # interim data
-        self.global_counts['cdf_mask'] = cdf_mask
+            tail_mask = self.global_counts['tail_mask']
+
+            kwargs = {'word_vec_var': self.word_vec_var}
+            if self.word_vec_var == 'Gi_star':
+                kwargs['w'] = libpysal.weights.Queen.from_dataframe(
+                    self.cells_geodf.loc[self.relevant_cells])
+
         self.word_vectors = word_counts.vec_to_metric(
-            self.word_counts_vectors, self.global_counts.loc[cdf_mask],
-            word_vec_var=self.word_vec_var)
+                self.word_counts_vectors, self.global_counts.loc[tail_mask],
+                **kwargs)
         return self.word_vectors
 
 
     def set_word_vec_var(self, word_vec_var):
+        if word_vec_var != self.word_vec_var:
         self.word_vec_var = word_vec_var
+            self.word_vectors = None
         _ = self.get_word_vectors()
 
 
@@ -347,33 +366,62 @@ class Language:
             for key, value in m_dict.items():
                 moran_dict[key].extend(value)
         ray.shutdown()
-        cdf_mask = self.global_counts['cdf_mask']
-        words = self.global_counts.loc[cdf_mask].index[:num_morans]
-        moran_df = (pd.DataFrame.from_dict(moran_dict)
-                                .set_index(words))
+        tail_mask = self.global_counts['tail_mask']
+        words = self.global_counts.loc[tail_mask].index[:num_morans]
+        moran_df = pd.DataFrame.from_dict(moran_dict).set_index(words)
         self.global_counts = self.global_counts.join(moran_df)
         return self.global_counts
 
 
-    def filter_word_vectors(self, z_th=10, p_th=0.01):
+    def filter_word_vectors(self, z_th=10, p_th=0.01, var_th=None):
+        self.word_vectors = self.get_word_vectors()
+        tail_mask = self.global_counts['tail_mask']
+        if var_th is None:
         self.z_th = z_th
         self.p_th = p_th
-        self.word_vectors = self.get_word_vectors()
         # assumes moran has been done
         is_regional = ((self.global_counts['z_value'] > z_th)
                        & (self.global_counts['p_value'] < p_th))
-        cdf_mask = self.global_counts['cdf_mask']
-        mask = is_regional.loc[cdf_mask].values
+        else:
+            mask_index = tail_mask.loc[tail_mask].index
+            var = self.word_vectors.var(axis=0)
+            mean = self.word_vectors.mean(axis=0)
+            mask_values = var > var_th
+            is_regional = pd.DataFrame({'is_regional': mask_values,
+                                        'var': var,
+                                        'mean': mean},
+                                       index=mask_index)
+        if 'is_regional' in self.global_counts.columns:
+            dropped_cols = is_regional.columns
+            self.global_counts = self.global_counts.drop(columns=dropped_cols)
+        self.global_counts = self.global_counts.join(is_regional)
+        self.global_counts['is_regional'] = (
+            self.global_counts['is_regional'].fillna(False))
+        mask = self.global_counts['is_regional'].loc[tail_mask].values
         self.word_vectors = self.word_vectors[:, mask]
         nr_kept = self.word_vectors.shape[1]
         print(f'Keeping {nr_kept} words out of {mask.shape[0]}')
 
 
     def make_decomposition(self, **kwargs):
+        word_mask = (self.global_counts['is_regional'] 
+                     & self.global_counts['tail_mask']).values
         pca = PCA(**kwargs).fit(self.word_vectors)
+        if kwargs.get('n_components') is None:
+            # If number of components is not specified, select them using the
+            # broken stick rule.
+            var_pca = pca.explained_variance_ratio_
+            var_broken_stick = data_clustering.broken_stick(pca.n_components_)
+            # We keep components until they don't explain more than what would
+            # be expected from a random partition of the variance into
+            # `n_components_`.
+            n_components = np.argmin(var_pca > var_broken_stick) - 1
+            new_kwargs = kwargs.copy()
+            new_kwargs['n_components'] = n_components
+            pca = PCA(**new_kwargs).fit(self.word_vectors)
         proj_vectors = pca.transform(self.word_vectors)
         decomposition = data_clustering.Decomposition(
-            self.word_vec_var, pca, proj_vectors, self.word_vectors.shape[1],
+            self.word_vec_var, pca, proj_vectors, word_mask,
             self.z_th, self.p_th)
         self.decompositions.append(decomposition)
         return decomposition
