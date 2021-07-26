@@ -23,6 +23,8 @@ import src.data.clustering as data_clustering
 class Region:
     cc: str
     lc: str
+    year_from: int = 2015
+    year_to: int = 2021
     readable: str = ''
     xy_proj: str = 'epsg:3857'
     max_place_area: float = 5e9
@@ -43,24 +45,25 @@ class Region:
 
 
     @classmethod
-    def from_dict(cls, cc, lc, d):
-        return cls(cc=cc, lc=lc, **{
+    def from_dict(cls, cc, lc, d , **kwargs):
+        return cls(cc=cc, lc=lc, **kwargs, **{
             k: v for k, v in d.items()
             if k in inspect.signature(cls).parameters
         })
 
 
     @staticmethod
-    def from_global_json(file_path: str, cc: str, lc: str):
+    def from_global_json(file_path, cc, lc, **kwargs):
         with open(file_path) as f:
             countries_dict = json.load(f)
         d = countries_dict[cc]
-        return Region.from_dict(cc, lc, d)
+        return Region.from_dict(cc, lc, d, **kwargs)
 
 
     def get_shape_geodf(self, all_cntr_shapes=None, simplify_tol=1000):
         if self.shape_geodf is None:
-            mask = all_cntr_shapes[self.shapefile_col].str.startswith(self.shapefile_val)
+            col = self.shapefile_col
+            mask = all_cntr_shapes[col].str.startswith(self.shapefile_val)
             self.shape_geodf = all_cntr_shapes.loc[mask]
             self.shape_geodf = geo.extract_shape(
                 self.shape_geodf, self.cc, xy_proj=self.xy_proj,
@@ -72,7 +75,7 @@ class Region:
         if self.cells_geodf is None:
             self.shape_geodf = self.get_shape_geodf(**kwargs)
             _, self.cells_geodf, _, _ = geo.create_grid(
-                self.shape_geodf, self.cell_size,
+                self.shape_geodf, self.cell_size, self.cc,
                 xy_proj=self.xy_proj, intersect=True)
         return self.cells_geodf
 
@@ -81,7 +84,8 @@ class Region:
         if hasattr(self, df_name):
             if getattr(self, df_name) is None:
                 parquet_file = str(files_fmt).format(
-                    kind=df_name, lc=self.lc, cc=self.cc)
+                    kind=df_name, lc=self.lc, cc=self.cc,
+                    year_from=self.year_from, year_to=self.year_to)
                 setattr(self, df_name, pd.read_parquet(parquet_file))
             return getattr(self, df_name)
         else:
@@ -102,6 +106,8 @@ class Language:
     regions: List[Region]
     _paths: paths_utils.ProjectPaths
     all_cntr_shapes: InitVar[geopd.GeoDataFrame]
+    year_from: int = 2015
+    year_to: int = 2021
     cc: str = None
     latlon_proj: str = 'epsg:4326'
     min_nr_cells: int = 10
@@ -114,7 +120,7 @@ class Language:
     cell_counts: pd.DataFrame = None
     relevant_cells: pd.Index = None
     word_counts_vectors: np.ndarray = None
-    word_vec_var: str = 'normed_freqs'
+    word_vec_var: str = 'polar'
     word_vectors: np.ndarray = None
     cdf_th: float = 0.99
     width_ratios: np.ndarray = None
@@ -135,19 +141,22 @@ class Language:
 
     @classmethod
     def from_countries_dict(cls, lc, readable, list_cc, countries_dict,
-                            all_cntr_shapes, paths, **kwargs):
+                            all_cntr_shapes, paths, year_from=2015,
+                            year_to=2021, **kwargs):
         list_cc.sort()
-        regions = [Region.from_dict(cc, lc, countries_dict[cc])
+        regions = [Region.from_dict(cc, lc, countries_dict[cc],
+                                    year_from=year_from, year_to=year_to)
                    for cc in list_cc]
         return cls(lc, readable, list_cc, regions, paths,
                    all_cntr_shapes, **kwargs)
 
 
-    def data_file_fmt(self, save_dir):
+    def data_file_fmt(self, save_dir, add_keys=None):
+        add_keys = add_keys or []
+        keys = ['lc', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
+                'cell_tokens_th', 'cdf_th'] + add_keys
         params_str = '_'.join(
-            [f'{key}={{{key}}}'
-             for key in ('lc', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
-                         'cell_tokens_th', 'cdf_th')])
+            [f'{key}={{{key}}}' for key in keys])
         save_path_fmt = str(save_dir / f'{{kind}}_{params_str}.{{ext}}')
         return save_path_fmt
 
@@ -222,51 +231,63 @@ class Language:
             total_nr_tokens = self.raw_cell_counts['count'].sum()
             if self.words_prior_mask is None:
                 _ = self.filter_global_counts()
-            self.cell_counts = word_counts.filter_part_multidx(
+            cell_counts = word_counts.filter_part_multidx(
                 self.raw_cell_counts, [self.words_prior_mask])
 
-            cell_sum = self.cell_counts.groupby('cell_id')['count'].sum()
-            # For countries containing deserts like Australia, geometric mean
-            # can be very low, so take at least the default `sum_th`.
-            sum_th = max(
-                10**(np.log10(cell_sum).mean() - self.cell_tokens_decade_crit),
-                self.cell_tokens_th)
+            cell_sum = cell_counts.groupby('cell_id')['count'].sum()
+            sum_th = self.cell_tokens_th
             cell_is_relevant = cell_sum > sum_th
             self.relevant_cells = cell_is_relevant.loc[cell_is_relevant].index
             print(f'Keeping {self.relevant_cells.shape[0]} cells out of '
                   f'{cell_is_relevant.shape[0]} with threshold {sum_th:.2e}')
-            self.cell_counts = word_counts.filter_part_multidx(
-                self.cell_counts, [cell_is_relevant])
+            cell_counts = word_counts.filter_part_multidx(
+                cell_counts, [cell_is_relevant])
 
-            filtered_nr_tokens = self.cell_counts['count'].sum()
+            filtered_nr_tokens = cell_counts['count'].sum()
             rel_diff = (total_nr_tokens - filtered_nr_tokens) / total_nr_tokens
             print(f'We had {total_nr_tokens:.0f} tokens, and filtering ',
                   f'brought it down to {filtered_nr_tokens:.0f}, so we lost ',
                   f'{100*rel_diff:.3g}%.')
-
+            self.cell_counts = cell_counts
         return self.cell_counts
 
-    
-    def save_interim(self):
-        save_path_fmt = self.data_file_fmt(self.paths.interim_data)
+
+    def save_interim(self, add_keys=None):
+        save_path_fmt = self.data_file_fmt(self.paths.interim_data,
+                                           add_keys=add_keys)
         self_dict = self.to_dict()
         save_path = save_path_fmt.format(kind='word_counts_vectors',
                                          **self_dict, ext='csv.gz')
-        np.savetxt(save_path, self.word_counts_vectors, delimiter=',')
+        np.savetxt(save_path, self.word_counts_vectors,
+                   delimiter=',', fmt='%i')
+        save_path = save_path_fmt.format(
+            kind=f'word_vectors_word_vec_var={self.word_vec_var}',
+            **self_dict, ext='csv.gz')
+        np.savetxt(save_path, self.word_vectors, delimiter=',')
         save_path = save_path_fmt.format(kind='relevant_cells',
                                          **self_dict, ext='csv.gz')
-        np.savetxt(save_path, self.relevant_cells.values, delimiter=',', fmt="%s")
+        np.savetxt(save_path, self.relevant_cells.values,
+                   delimiter=',', fmt="%s")
         save_path = save_path_fmt.format(kind='global_counts',
                                          **self_dict, ext='parquet')
         self.global_counts.to_parquet(save_path, index=True)
 
 
-    def load_interim(self):
-        save_path_fmt = self.data_file_fmt(self.paths.interim_data)
+    def load_interim(self, add_keys=None):
+        save_path_fmt = self.data_file_fmt(self.paths.interim_data,
+                                           add_keys=add_keys)
         self_dict = self.to_dict()
         save_path = save_path_fmt.format(kind='word_counts_vectors',
                                          **self_dict, ext='csv.gz')
-        self.word_counts_vectors = np.loadtxt(save_path, delimiter=',')
+        self.word_counts_vectors = np.loadtxt(save_path, delimiter=',',
+                                              dtype=int)
+        save_path = save_path_fmt.format(
+            kind=f'word_vectors_word_vec_var={self.word_vec_var}',
+            **self_dict, ext='csv.gz')
+        if Path(save_path).exists():
+            np.loadtxt(save_path, delimiter=',')
+        else:
+            print(f'word_vectors_word_vec_var={self.word_vec_var} is not saved')
         save_path = save_path_fmt.format(kind='relevant_cells',
                                          **self_dict, ext='csv.gz')
         self.relevant_cells = pd.Index(
@@ -284,9 +305,10 @@ class Language:
                 reg.shape_geodf.geometry.to_crs(self.latlon_proj).total_bounds)
             # For a given longitude extent, the width is maximum the closer to the
             # equator, so the closer the latitude is to 0.
-            eq_crossed = min_lat * max_lat < 0
-            lat_max_width = min(abs(min_lat), abs(max_lat)) * (1 - int(eq_crossed))
-            width = geo.haversine(min_lon, lat_max_width, max_lon, lat_max_width)
+            eq_not_crossed = int(min_lat * max_lat > 0)
+            lat_max_width = min(abs(min_lat), abs(max_lat)) * eq_not_crossed
+            width = geo.haversine(min_lon, lat_max_width,
+                                  max_lon, lat_max_width)
             height = geo.haversine(min_lon, min_lat, min_lon, max_lat)
             self.width_ratios[i] = width / height
         if ratio_lgd:
@@ -329,7 +351,7 @@ class Language:
 
     def get_word_vectors(self):
         if self.word_vectors is None:
-        self.word_counts_vectors = self.get_word_counts_vectors()
+            self.word_counts_vectors = self.get_word_counts_vectors()
             tail_mask = self.global_counts['tail_mask']
 
             kwargs = {'word_vec_var': self.word_vec_var}
@@ -337,7 +359,7 @@ class Language:
                 kwargs['w'] = libpysal.weights.Queen.from_dataframe(
                     self.cells_geodf.loc[self.relevant_cells])
 
-        self.word_vectors = word_counts.vec_to_metric(
+            self.word_vectors = word_counts.vec_to_metric(
                 self.word_counts_vectors, self.global_counts.loc[tail_mask],
                 **kwargs)
         return self.word_vectors
@@ -345,7 +367,7 @@ class Language:
 
     def set_word_vec_var(self, word_vec_var):
         if word_vec_var != self.word_vec_var:
-        self.word_vec_var = word_vec_var
+            self.word_vec_var = word_vec_var
             self.word_vectors = None
         _ = self.get_word_vectors()
 
@@ -377,11 +399,11 @@ class Language:
         self.word_vectors = self.get_word_vectors()
         tail_mask = self.global_counts['tail_mask']
         if var_th is None:
-        self.z_th = z_th
-        self.p_th = p_th
-        # assumes moran has been done
-        is_regional = ((self.global_counts['z_value'] > z_th)
-                       & (self.global_counts['p_value'] < p_th))
+            self.z_th = z_th
+            self.p_th = p_th
+            # assumes moran has been done
+            is_regional = ((self.global_counts['z_value'] > z_th)
+                        & (self.global_counts['p_value'] < p_th))
         else:
             mask_index = tail_mask.loc[tail_mask].index
             var = self.word_vectors.var(axis=0)
@@ -492,15 +514,15 @@ class Language:
                              cbar_label=None, save_path=None, show=True,
                              **plot_kwargs):
         if normed_bboxes is None:
-        normed_bboxes, (total_width, total_height) = self.get_maps_pos(
-            total_width, total_height=total_height, ratio_lgd=1/10)
+            normed_bboxes, (total_width, total_height) = self.get_maps_pos(
+                total_width, total_height=total_height, ratio_lgd=1/10)
         
-            fig, axes = plt.subplots(
+        fig, axes = plt.subplots(
             len(self.list_cc) + 1,
-                figsize=(total_width/10/2.54, total_height/10/2.54))
-            map_axes = axes[:-1]
-            cax = axes[-1]
-            cax.set_position(normed_bboxes[-1])
+            figsize=(total_width/10/2.54, total_height/10/2.54))
+        map_axes = axes[:-1]
+        cax = axes[-1]
+        cax.set_position(normed_bboxes[-1])
         
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
         vmin = z_plot.min()
@@ -509,16 +531,16 @@ class Language:
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         else:
             norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
-
-            for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
-                ax.set_position(bbox)
+        
+        for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
+            ax.set_position(bbox)
             plot_df = reg.cells_geodf.join(plot_series, how='inner')
             plot_df.plot(column='z', ax=ax, norm=norm, cmap=cmap,
-                             **plot_kwargs)
-                reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black')
-                ax.set_axis_off()
+                         **plot_kwargs)
+            reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black')
+            ax.set_axis_off()
 
-            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         _ = fig.colorbar(sm, cax=cax, label=cbar_label)
         
         if show:

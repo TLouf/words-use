@@ -46,12 +46,12 @@ def gen_quadrants(left_x, right_x, bot_y, top_y, places_geodf, sub_cells_list,
             sub_cells_list.append(quadrant)
 
 
-def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
+def create_grid(shape_df, cell_size, cc, xy_proj='epsg:3857', intersect=False,
                 places_geodf=None, max_nr_places=None):
     '''
     Creates a square grid over a given shape.
     `shape_df` (GeoDataFrame): single line GeoDataFrame containing the shape on
-    which the grid is to be created, in lat,lon coordinates.
+    which the grid is to be created,.
     `cell_size` (int): size of the sides of the square cells which constitute
     the grid, in meters.
     `intersect` (bool): determines whether the function computes
@@ -60,6 +60,7 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     If `places_geodf` is given, cells are split in 4 when they countain more
     than `max_nr_places` places from this data frame.
     '''
+    shape_df = shape_df.to_crs(xy_proj)
     if places_geodf is not None:
         places_geodf['x_c'], places_geodf['y_c'] = zip(
             *places_geodf.geometry.apply(lambda geo: geo.centroid.coords[0]))
@@ -113,7 +114,7 @@ def create_grid(shape_df, cell_size, xy_proj='epsg:3857', intersect=False,
     cells_df = geopd.GeoDataFrame(cells_list, crs=xy_proj, columns=['geometry'])
     # Prefix `cc` to the index to keep a unique index when mixing data from
     # several regions.
-    cells_df.index = shape_df.cc + '.' + cells_df.index.astype(str)
+    cells_df.index = cc + '.' + cells_df.index.astype(str)
     cells_df['cell_id'] = cells_df.index
     if intersect:
         # cells_in_shape_df = geopd.overlay(

@@ -57,7 +57,7 @@ class ProjectPaths:
     proj: Path = Path(os.environ['PROJ_DIR'])
     oslom: Path = Path(os.environ['OSLOM_DIR'])
     source_fname_fmt: str = '{kind}_{from}_{to}_{cc}.json.gz'
-    counts_fname_fmt: str = '{kind}_lang={lc}_cc={cc}.parquet'
+    counts_fname_fmt: str = '{kind}_lang={lc}_cc={cc}_years={year_from}-{year_to}.parquet'
     cluster_fig_fname_fmt: str = (
         'clusters_method={method_repr}{kwargs_str}_word_vec_var={word_vec_var}'
         '_decomposition={decomposition}.pdf')
