@@ -3,7 +3,7 @@ import pickle
 import inspect
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
-from typing import List
+from typing import List, Optional
 import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -29,15 +29,15 @@ class Region:
     xy_proj: str = 'epsg:3857'
     max_place_area: float = 5e9
     cell_size: float = 50e3
-    shape_bbox: List[float] = None
+    shape_bbox: Optional[List[float]] = None
     shapefile_name: str = 'CNTR_RG_01M_2016_4326.shp'
     shapefile_col: str = 'FID'
-    shape_geodf: geopd.GeoDataFrame = None
-    cells_geodf: geopd.GeoDataFrame = None
-    cell_counts: pd.DataFrame = None
-    region_counts: pd.DataFrame = None
-    raw_cell_counts: pd.DataFrame = None
-    shapefile_val: str = None
+    shape_geodf: Optional[geopd.GeoDataFrame] = None
+    cells_geodf: Optional[geopd.GeoDataFrame] = None
+    cell_counts: Optional[pd.DataFrame] = None
+    region_counts: Optional[pd.DataFrame] = None
+    raw_cell_counts: Optional[pd.DataFrame] = None
+    shapefile_val: Optional[str] = None
 
 
     def __post_init__(self):
@@ -108,22 +108,22 @@ class Language:
     all_cntr_shapes: InitVar[geopd.GeoDataFrame]
     year_from: int = 2015
     year_to: int = 2021
-    cc: str = None
+    cc: Optional[str] = None
     latlon_proj: str = 'epsg:4326'
     min_nr_cells: int = 10
     cell_tokens_th: float = 1e4
     cell_tokens_decade_crit: float = 2.
-    cells_geodf: geopd.GeoDataFrame = None
-    global_counts: pd.DataFrame = None
-    raw_cell_counts: pd.DataFrame = None
-    words_prior_mask: pd.Series = None
-    cell_counts: pd.DataFrame = None
-    relevant_cells: pd.Index = None
-    word_counts_vectors: np.ndarray = None
+    cells_geodf: Optional[geopd.GeoDataFrame] = None
+    global_counts: Optional[pd.DataFrame] = None
+    raw_cell_counts: Optional[pd.DataFrame] = None
+    words_prior_mask: Optional[pd.Series] = None
+    cell_counts: Optional[pd.DataFrame] = None
+    relevant_cells: Optional[pd.Index] = None
+    word_counts_vectors: Optional[np.ndarray] = None
     word_vec_var: str = 'polar'
-    word_vectors: np.ndarray = None
+    word_vectors: Optional[np.ndarray] = None
     cdf_th: float = 0.99
-    width_ratios: np.ndarray = None
+    width_ratios: Optional[np.ndarray] = None
     decompositions: List[data_clustering.Decomposition] = field(default_factory=list)
     z_th: float = 10
     p_th: float = 0.01

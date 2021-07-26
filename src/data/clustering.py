@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict, InitVar
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Optional, Callable
 from itertools import chain
 import os
 import re
@@ -177,14 +177,14 @@ class Clustering:
     clusters_data: Union[dict, np.ndarray]
     cells_ids: InitVar[np.ndarray]
     method_repr: str
-    method_obj: callable = None
-    method_args: list = None
-    method_kwargs: dict = None
-    clusters_series: pd.Series = None
-    nr_clusters: int = None
-    prop_homeless: float = None
-    kwargs_str: str = None
-    score: float = None
+    method_obj: Optional[Callable] = None
+    method_args: Optional[list] = None
+    method_kwargs: Optional[dict] = None
+    clusters_series: Optional[pd.Series] = None
+    nr_clusters: Optional[int] = None
+    prop_homeless: Optional[float] = None
+    kwargs_str: Optional[str] = None
+    score: Optional[float] = None
 
     def __post_init__(self, cells_ids):
         self.cell_dict = self.get_cell_dict(cells_ids)
@@ -382,11 +382,11 @@ class Clustering:
 class HierarchicalClustering:
     levels: List[Clustering]
     method_repr: str
-    method_args: list = None
-    method_kwargs: dict = None
-    kwargs_str: str = None
-    linkage: np.ndarray = None
-    cut_tree: np.ndarray = None
+    method_args: Optional[list] = None
+    method_kwargs: Optional[dict] = None
+    kwargs_str: Optional[str] = None
+    linkage: Optional[np.ndarray] = None
+    cut_tree: Optional[np.ndarray] = None
 
 
     def __post_init__(self):

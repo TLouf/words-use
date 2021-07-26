@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Optional
 from string import Formatter
 from dotenv import load_dotenv
 load_dotenv()
@@ -64,16 +65,16 @@ class ProjectPaths:
     net_fname_fmt: str = (
         'net_metric={metric}_transfo={transfo_str}_word_vec_var={word_vec_var}'
         '_decomposition={decomposition}.dat')
-    source_fmt: Path = None
-    proj_data: Path = None
-    ext_data: Path = None
-    raw_data: Path = None
-    interim_data: Path = None
-    processed_data: Path = None
-    counts_files_fmt: Path = None
-    shp_file_fmt: Path = None
-    figs: Path = None
-    cluster_fig_fmt: Path = None
+    source_fmt: Optional[Path] = None
+    proj_data: Optional[Path] = None
+    ext_data: Optional[Path] = None
+    raw_data: Optional[Path] = None
+    interim_data: Optional[Path] = None
+    processed_data: Optional[Path] = None
+    counts_files_fmt: Optional[Path] = None
+    shp_file_fmt: Optional[Path] = None
+    figs: Optional[Path] = None
+    cluster_fig_fmt: Optional[Path] = None
 
     def __post_init__(self):
         self.source_fmt = self.source_data / self.source_fname_fmt
