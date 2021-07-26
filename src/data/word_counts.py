@@ -1,9 +1,42 @@
 import re
 import numpy as np
+import scipy.stats
 import geopandas as geopd
 from shapely.geometry import Point
 from esda.getisord import G_Local
 import src.data.text_process as text_process
+
+
+class My_G_local(G_Local):
+    def __init__(
+        self,
+        y,
+        w,
+        transform="R",
+        permutations=999,
+        star=False,
+        keep_simulations=True,
+    ):
+        y = np.asarray(y).flatten()
+        self.n = len(y)
+        self.y = y
+        self.w = w
+        self.w_original = w.transform
+        self.w.transform = self.w_transform = transform.lower()
+        self.permutations = permutations
+        self.star = star
+        self.calc()
+        self.p_norm = 1 - scipy.stats.norm.cdf(np.abs(self.Zs))
+        if permutations:
+            self.__crand(keep_simulations)
+            if keep_simulations:
+                self.sim = sim = self.rGs.T
+                self.EG_sim = sim.mean(axis=0)
+                self.seG_sim = sim.std(axis=0)
+                self.VG_sim = self.seG_sim * self.seG_sim
+                self.z_sim = (self.Gs - self.EG_sim) / self.seG_sim
+                self.p_z_sim = 1 - scipy.stats.norm.cdf(np.abs(self.z_sim))
+
 
 def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
                          lang, latlon_proj='epsg:4326'):
@@ -257,7 +290,7 @@ def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='', w=None):
         ## permutations??
         for idx_word in range(word_vectors.shape[1]):
             y = word_vectors[:, idx_word]
-            lg_star = G_Local(y, w, transform='R', star=True, permutations=0)
+            lg_star = My_G_local(y, w, transform='R', star=True, permutations=0)
             word_vectors[:, idx_word] = lg_star.Zs
 
     elif 'tf-idf' in word_vec_var:
