@@ -424,41 +424,88 @@ class Language:
                                      total_height=total_height)
 
 
-    def map_comp_loading(self, i_decompo=-1, nr_plots=5, cmap='bwr',
-                         total_width=178, total_height=None, **plot_kwargs):
+    def map_continuous_choro(self, z_plot, normed_bboxes=None, total_width=178,
+                             total_height=None, cmap=None, vcenter=None,
+                             cbar_label=None, save_path=None, show=True,
+                             **plot_kwargs):
+        if normed_bboxes is None:
         normed_bboxes, (total_width, total_height) = self.get_maps_pos(
             total_width, total_height=total_height, ratio_lgd=1/10)
-        proj_vectors = self.decompositions[i_decompo].proj_vectors
-        for i in range(nr_plots):
-            comp_series = pd.Series(proj_vectors[:, i],
-                                    index=self.relevant_cells, name='pca_comp')
+        
             fig, axes = plt.subplots(
-                len(self.list_cc)+1,
+            len(self.list_cc) + 1,
                 figsize=(total_width/10/2.54, total_height/10/2.54))
             map_axes = axes[:-1]
             cax = axes[-1]
             cax.set_position(normed_bboxes[-1])
-            vmin = proj_vectors[:, i].min()
-            vmax = proj_vectors[:, i].max()
-            norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=0)
+        
+        plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
+        vmin = z_plot.min()
+        vmax = z_plot.max()
+        if vcenter is None:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        else:
+            norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
 
             for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
                 ax.set_position(bbox)
-                plot_df = reg.cells_geodf.join(comp_series, how='inner')
-                plot_df.plot(column='pca_comp', ax=ax, norm=norm, cmap=cmap,
+            plot_df = reg.cells_geodf.join(plot_series, how='inner')
+            plot_df.plot(column='z', ax=ax, norm=norm, cmap=cmap,
                              **plot_kwargs)
                 reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black')
                 ax.set_axis_off()
 
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-            _ = fig.colorbar(sm, cax=cax, label=f'Loading of component {i}')
+        _ = fig.colorbar(sm, cax=cax, label=cbar_label)
+        
+        if show:
             fig.show()
+        if save_path:
+            fig.savefig(save_path, bbox_inches='tight')
+
+        return fig, axes
+
+
+    def map_word(self, word, total_width=178, total_height=None, vcenter=0,
+                 cmap='bwr', **plot_kwargs):
+        cbar_label = f'{self.word_vec_var} of {word}'
+        # assumes moran has been done
+        is_regional = self.global_counts['is_regional']
+        word_idx = self.global_counts.loc[is_regional].index.get_loc(word)
+        z_plot = self.word_vectors[:, word_idx]
+    
+        fig, axes = self.map_continuous_choro(
+            z_plot, total_width=total_width, total_height=total_height,
+            cmap=cmap, vcenter=vcenter, cbar_label=cbar_label, **plot_kwargs)
+        return fig, axes
+
+
+    def map_comp_loading(self, i_decompo=-1, comps=None, cmap='bwr',
+                         total_width=178, total_height=None, save_path_fmt='',
+                         **plot_kwargs):
+        normed_bboxes, (total_width, total_height) = self.get_maps_pos(
+            total_width, total_height=total_height, ratio_lgd=1/10)
+        decomp = self.decompositions[i_decompo]
+        proj_vectors = decomp.proj_vectors
+        if comps is None:
+            comps = range(proj_vectors.shape[1])
+        for i in comps:
+            cbar_label = f'Loading of component {i}'
+            z_plot = proj_vectors[:, i]
+            save_path = Path(
+                str(save_path_fmt).format(component=i, **asdict(decomp)))
+            _, _ = self.map_continuous_choro(
+                z_plot, normed_bboxes=normed_bboxes, total_width=total_width,
+                total_height=total_height, cmap=cmap, cbar_label=cbar_label,
+                vcenter=0, save_path=save_path, **plot_kwargs)
 
 
     def map_clustering(self, i_decompo=-1, i_clust=-1, total_width=178,
-                       cmap=None, show=True, save_path_fmt=None, **kwargs):
+                       total_height=None, cmap=None, show=True,
+                       save_path_fmt=None, **kwargs):
         # total width in mm
-        normed_bboxes, (total_width, total_height) = self.get_maps_pos(total_width)
+        normed_bboxes, (total_width, total_height) = self.get_maps_pos(
+            total_width, total_height=total_height)
         fig_list = []
         axes_list = []
         decomposition = self.decompositions[i_decompo]
@@ -471,12 +518,14 @@ class Language:
                 axes = (axes,)
 
             if level.clusters_series is None:
-                level.clusters_series = level.get_clusters_series(self.relevant_cells)
+                level.clusters_series = level.get_clusters_series(
+                    self.relevant_cells)
 
             label_color = level.attr_color_to_labels(cmap=cmap)
             for ax, reg, bbox in zip(axes, self.regions, normed_bboxes):
                 ax.set_position(bbox)
-                cc_geodf = reg.cells_geodf.join(level.clusters_series, how='inner')
+                cc_geodf = reg.cells_geodf.join(level.clusters_series,
+                                                how='inner')
                 for label, label_geodf in cc_geodf.groupby('clusters'):
                     # Don't put a cmap in kwargs['plot'] because here we use a
                     # fixed color per cluster.
