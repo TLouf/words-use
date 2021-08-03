@@ -54,24 +54,29 @@ def old_distribs_extract(list_fips, freq_file_format):
     return global_words, counties_dict, counties_counts
 
 
-def get_counties_geodf(cnty_fname, state_fname, shp_file_format,
-                       xy_proj='epsg:3857'):
-    us_counties = geopd.read_file(str(shp_file_format).format(cnty_fname))
-    us_states = geopd.read_file(str(shp_file_format).format(state_fname))
-    us_states = (us_states.astype({'STATEFP': int})
-                          .set_index('STATEFP')['NAME']
-                          .rename('state_name'))
-    us_counties = (us_counties.astype({'GEOID': int, 'STATEFP': int})
-                              .rename(columns={'GEOID': 'cell_id',
-                                               'NAME': 'name'}))
+
+def get_states_geodf(state_fpath, xy_proj='epsg:3857'):
+    states_geodf = geopd.read_file(state_fpath)
+    states_geodf = (states_geodf.astype({'STATEFP': int})
+                          .set_index('STATEFP')
+                          .rename(columns={'NAME': 'state_name'}))
     # Exclude all overseas islands and Alaska
-    to_exclude = ((us_counties['STATEFP'].isin((15, 2)))
-                  | (us_counties['STATEFP'] > 56))
+    to_exclude = ((states_geodf.index.isin((15, 2)))
+                  | (states_geodf.index > 56))
+    states_geodf = states_geodf.loc[~to_exclude].to_crs(xy_proj)
+    return states_geodf
+
+    
+def get_counties_geodf(cnty_fpath, states_geodf, xy_proj='epsg:3857'):
+    counties_geodf = geopd.read_file(cnty_fpath)
     cols = ['cell_id', 'state_name','name', 'geometry']
-    us_counties = (us_counties.loc[~to_exclude]
-                              .to_crs(xy_proj)
-                              .set_index('cell_id', drop=False)
-                              .join(us_states, on='STATEFP')
-                              .loc[:, cols]
-                              .sort_index())
-    return us_counties
+    states_geoseries = states_geodf['state_name']
+    counties_geodf = (
+        counties_geodf.astype({'GEOID': int, 'STATEFP': int})
+                      .rename(columns={'GEOID': 'cell_id', 'NAME': 'name'})
+                      .set_index('cell_id', drop=False)
+                      .join(states_geoseries, how='inner', on='STATEFP')
+                      .to_crs(xy_proj)
+                      .loc[:, cols]
+                      .sort_index())
+    return counties_geodf
