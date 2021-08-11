@@ -116,6 +116,7 @@ def create_grid(shape_df, cell_size, cc, xy_proj='epsg:3857', intersect=False,
     # several regions.
     cells_df.index = cc + '.' + cells_df.index.astype(str)
     cells_df['cell_id'] = cells_df.index
+    cells_df = cells_df.sort_index()
     if intersect:
         # cells_in_shape_df = geopd.overlay(
         #     cells_df, shape_df[['geometry']], how='intersection')
