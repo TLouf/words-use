@@ -7,6 +7,7 @@ import re
 import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance
 import pandas as pd
@@ -52,7 +53,7 @@ def gen_net_file_path(net_file_path_fmt, decomposition, metric, transfo=None):
 def run_oslom(oslom_dir, data_path, res_path=None, oslom_opt_params=None,
               directional=False):
     '''
-    Run the compiled OSLOM located in `oslom_dir` on the net<ork data contained
+    Run the compiled OSLOM located in `oslom_dir` on the network data contained
     in `data_path`, saving the results in `res_path`.
     '''
     if oslom_opt_params is None:
@@ -174,29 +175,35 @@ def broken_stick(n_components):
 
 @dataclass
 class Clustering:
-    clusters_data: Union[dict, np.ndarray]
+    source_data: InitVar[Union[dict, np.ndarray]]
     cells_ids: InitVar[np.ndarray]
     method_repr: str
     method_obj: Optional[Callable] = None
     method_args: Optional[list] = None
     method_kwargs: Optional[dict] = None
-    clusters_series: Optional[pd.Series] = None
+    labels: pd.Series = field(init=False)
+    colors: Optional[dict] = None
     nr_clusters: Optional[int] = None
     prop_homeless: Optional[float] = None
     kwargs_str: Optional[str] = None
     score: Optional[float] = None
 
-    def __post_init__(self, cells_ids):
-        self.cell_dict = self.get_cell_dict(cells_ids)
-        self.clusters_series = self.get_clusters_series()
+    def __post_init__(self, source_data, cells_ids):
+        self.cell_dict = self.get_cell_dict(source_data, cells_ids)
+        self.init_labels()
+        
+        if self.colors is None:
+            self.attr_color_to_labels()
+            
         if self.kwargs_str is None:
             self.kwargs_str = '_params=({})'.format(
                 '_'.join([f'{key}={value}'
                           for key, value in self.method_kwargs.items()]))
 
+
     def __str__(self):
         self_dict = asdict(self)
-        exclude_keys = ['clusters_data', 'clusters_series']
+        exclude_keys = ['labels', 'colors']
         return str({key: value
                     for key, value in self_dict.items()
                     if key not in exclude_keys})
@@ -204,30 +211,30 @@ class Clustering:
 
     def __repr__(self):
         self_dict = asdict(self)
-        exclude_keys = ['clusters_data', 'clusters_series']
+        exclude_keys = ['labels', 'colors']
         attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
                               for key in self_dict.keys()
                               if key not in exclude_keys])
         return f'Clustering({attr_str})'
 
 
-    def get_cell_dict(self, cells_ids):
-        if isinstance(self.clusters_data, np.ndarray):
+    def get_cell_dict(self, source_data, cells_ids):
+        if isinstance(source_data, np.ndarray):
             cell_dict = {
                 cell_id: [clust]
-                for cell_id, clust in zip(cells_ids, self.clusters_data)}
-        elif isinstance(self.clusters_data, dict):
-            if len(self.clusters_data) == len(cells_ids):
-                cell_dict = dict(zip(cells_ids, self.clusters_data.values()))
+                for cell_id, clust in zip(cells_ids, source_data)}
+        elif isinstance(source_data, dict):
+            if len(source_data) == len(cells_ids):
+                cell_dict = dict(zip(cells_ids, source_data.values()))
             else:
                 # translate dict cluster: [cells] to cell: [clusters]
                 cell_dict = {cell_id: [] for cell_id in cells_ids}
-                for cluster, cells in self.clusters_data.items():
+                for cluster, cells in source_data.items():
                     for c in cells:
                         cell_dict[cells_ids[c]].append(cluster)
         else:
             raise TypeError(
-                '''clusters_data must either be an array of cluster
+                '''source_data must either be an array of cluster
                 labels (as is the case for the result from hierarchical
                 clustering), or a dictionary mapping clusters to a list of
                 cells, or cells to a list of clusters''')
@@ -236,27 +243,26 @@ class Clustering:
         return self.cell_dict
 
 
-    def get_clusters_series(self):
-        clusters_series = pd.Series(self.cell_dict, name='clusters')
-        self.nr_clusters = clusters_series.apply(np.max).max() + 1
-        self.clusters_series = (
-            clusters_series.apply(lambda x: '+'.join([str(c+1) for c in x])))
-        homeless_mask = self.clusters_series == '0'
-        self.clusters_series.loc[homeless_mask] = 'homeless'
+    def init_labels(self):
+        labels = pd.Series(self.cell_dict, name='labels')
+        self.nr_clusters = labels.apply(np.max).max() + 1
+        labels = (
+            labels.apply(lambda x: '+'.join([str(c+1) for c in x])))
+        homeless_mask = labels == '0'
+        labels.loc[homeless_mask] = 'homeless'
         self.prop_homeless = homeless_mask.sum() / homeless_mask.shape[0]
-        # self.nr_clusters = self.clusters_series.nunique()
-        return self.clusters_series
+        self.labels = labels
 
 
     def get_binary_matrix(self, other_matrix=None):
-        nr_cells = self.clusters_series.shape[0]
+        nr_cells = self.labels.shape[0]
         binary_matrix = np.zeros((nr_cells, self.nr_clusters), dtype=int)
-        mask = self.clusters_series != 'homeless'
+        mask = self.labels != 'homeless'
         clust_arr = (
-            self.clusters_series.loc[mask]
-                                .apply(lambda lb: np.array(lb.split('+')))
-                                .values
-                                .astype(int))
+            self.labels.loc[mask]
+                       .apply(lambda lb: np.array(lb.split('+')))
+                       .values
+                       .astype(int))
         clust_arr = clust_arr - 1
         for i, clusts in zip(np.where(mask.values)[0], clust_arr):
             binary_matrix[i, clusts] += 1
@@ -282,18 +288,20 @@ class Clustering:
                         max_score = new_score
                         i_dest = pot_i_dest
                         i_og = pot_i_og
+                        
                 binary_matrix[:, i_og], binary_matrix[:, i_dest] = (
                     binary_matrix[:, i_dest], binary_matrix[:, i_og].copy())
                 print(i_og, i_dest)
                 i_col_list.remove(i_og)
                 if i_og != i_dest:
                     i_col_list.remove(i_dest)
+                    
         return binary_matrix
 
 
     def attr_color_to_labels(self, cmap=None):
         # make it an attribute to have consistent coloring?
-        unique_labels = sorted(self.clusters_series.unique())
+        unique_labels = sorted(self.labels.unique())
         if cmap is None:
             gen_colors_fun = map_viz.gen_distinct_colors
         else:
@@ -308,31 +316,34 @@ class Clustering:
         else:
             colors = gen_colors_fun(nr_cats)
 
-        label_color = dict(zip(unique_labels, colors))
-        return label_color
+        self.colors = dict(zip(unique_labels, colors))
 
 
     def map_plot(self, geodf, shape_geodf, fig=None, ax=None, cax=None,
                  show=True, save_path=None, cmap=None, xy_proj='epsg:3857',
                  **kwargs):
+        if cmap is not None:
+            self.attr_color_to_labels(cmap=cmap)
+
         if ax is None:
             fig, ax = plt.subplots(1)
-        plot_geodf = (geodf.join(self.clusters_series, how='inner')
+
+        plot_geodf = (geodf.join(self.labels, how='inner')
                            .to_crs(xy_proj))
 
-        label_color = self.attr_color_to_labels(cmap=cmap)
-        for label, label_geodf in plot_geodf.groupby('clusters'):
+        for label, label_geodf in plot_geodf.groupby('labels'):
             # Don't put a cmap in kwargs['plot'] because here we use a fixed
             # color per cluster.
-            label_geodf.plot(ax=ax, color=label_color[label],
+            label_geodf.plot(ax=ax, color=self.colors[label],
                              **kwargs.get('plot', {}))
+
         shape_geodf.to_crs(xy_proj).plot(ax=ax, color='none', edgecolor='black')
         ax.set_axis_off()
 
         if cax:
             # The colours will correspond because groupby sorts by the column by
             # which we group, and we sorted the unique labels.
-            cax = map_viz.colored_pts_legend(cax, label_color,
+            cax = map_viz.colored_pts_legend(cax, self.colors,
                                              **kwargs.get('legend', {}))
 
         if save_path:
@@ -366,7 +377,7 @@ class Clustering:
 
     def silhouette_plot(self, proj_vectors, metric=None):
         # convention that in labels 0 means noise
-        cluster_labels = self.clusters_series.values.astype(int) - 1
+        cluster_labels = self.labels.values.astype(int) - 1
         if metric is None:
             if self.method_kwargs is not None:
                 metric = self.method_kwargs.get('metric', 'euclidean')
@@ -376,6 +387,32 @@ class Clustering:
                                       metric=metric)
         return fig, ax
 
+
+def rearrange_levels_x_clust(levels_x_clust):
+    m = levels_x_clust.copy()
+    max_nr_clusters = m.shape[1]
+    list_inv_reorders = []
+
+    for i in range(max_nr_clusters-2, 0, -1):
+        reorder = np.argsort(m[i-1, :])
+        m = m[:, reorder]
+        inv_reorder = np.zeros(max_nr_clusters, dtype=int)
+        inv_reorder[reorder] = np.arange(max_nr_clusters)
+        list_inv_reorders.append(inv_reorder)
+
+    m[-1, :] = np.arange(1, max_nr_clusters+1)
+    m[:, -1] = max_nr_clusters
+
+    for i in range(1, max_nr_clusters-1):
+        has_changed = m[i, :] != m[i-1, :]
+        if has_changed.any():
+            prev_row = m[i-1, has_changed]
+            m[i, has_changed] = prev_row + 1 - 2 * int(prev_row[0] > max_nr_clusters/2)
+
+    for inv_reorder in list_inv_reorders[::-1]:
+        m = m[:, inv_reorder]
+
+    return m
 
 
 @dataclass
@@ -394,6 +431,11 @@ class HierarchicalClustering:
             self.kwargs_str = '_params=({})'.format(
                 '_'.join([f'{key}={value}'
                          for key, value in self.method_kwargs.items()]))
+
+        if self.method_repr == 'shc.linkage':
+            # not implemented for other methods
+            self.attr_lvl_colors()
+
 
     def __str__(self):
         self_dict = asdict(self)
@@ -422,8 +464,9 @@ class HierarchicalClustering:
         else:
             n_clusters = np.asarray(range(2, max_n_clusters + 1))
         cut_tree = shc.cut_tree(linkage, n_clusters=n_clusters)
+        # colors={} to skip attr_color_to_labels
         levels = [
-            Clustering(lvl, cells_ids, method_repr,
+            Clustering(lvl, cells_ids, method_repr, colors={},
                        method_kwargs={**linkage_kwargs, 'lvl': i})
             for i, lvl in enumerate(cut_tree.T)]
         return cls(levels, method_repr, method_kwargs=linkage_kwargs,
@@ -494,11 +537,17 @@ class HierarchicalClustering:
         aggregation step.
         '''
         n_lvls = len(self.levels)
+        sorted_levels = sorted(self.levels, key=lambda x: getattr(x, 'nr_clusters'))
         levels_x_clust = np.zeros((n_lvls, n_lvls + 1), dtype=int)
         levels_x_clust[-1, :] = np.arange(0, n_lvls + 1)
         for i in range(n_lvls-2, -1, -1):
-            lvl_clusts = self.levels[i].clusters_arr
-            lower_lvl_clusts = self.levels[i+1].clusters_arr
+            # mask = self.labels != 'homeless'
+            # clust_arr = (
+            #     self.labels..values
+            #             .astype(int))
+            # clust_arr = clust_arr - 1
+            lvl_clusts = sorted_levels[i].labels.values.astype(int) - 1
+            lower_lvl_clusts = sorted_levels[i+1].labels.values.astype(int) - 1
             # For every cluster in the lower level,
             for clust in np.unique(lower_lvl_clusts):
                 # we select the higher level cluster to which it belongs. Because we
@@ -508,12 +557,53 @@ class HierarchicalClustering:
                 agg_lvl = lvl_clusts[lower_lvl_clusts == clust][0]
                 levels_x_clust[i, :][levels_x_clust[i+1, :] == clust] = agg_lvl
         levels_x_clust += 1
+
         return levels_x_clust
 
 
-    def plot_dendogram(self, p=30):
+    def attr_lvl_colors(self, cmap=None):
+        sorted_levels = sorted(self.levels,
+                               key=lambda x: getattr(x, 'nr_clusters'),
+                               reverse=True)
+        og_m = self.get_clusters_agg()
+        mod_m = rearrange_levels_x_clust(og_m)
+        iterator = zip(sorted_levels, og_m[::-1], mod_m[::-1])
+        for i, (l, og_row, mod_row) in enumerate(iterator):
+            mapping = dict(zip(og_row.astype(str), mod_row.astype(str)))
+            l.labels = l.labels.map(mapping)
+            if i == 0:
+                l.attr_color_to_labels(cmap=cmap)
+                colors = l.colors
+            else:
+                l.colors = {lbl: colors[lbl] for lbl in mapping.values()}
+
+
+    def plot_dendrogram(self, coloring_lvl=-1, **shc_dendro_kwargs):
         fig, ax = plt.subplots(1, figsize=(10, 7))
-        _ = shc.dendrogram(self.linkage, p=p, truncate_mode='lastp', ax=ax)
+        clust_coloring = self.levels[coloring_lvl]
+        hex_color_dict = {key: mcolors.to_hex(c)
+                          for key, c in clust_coloring.colors.items()}
+        leaves_colors = clust_coloring.labels.map(hex_color_dict)
+        leaf_colors_dict = dict(zip(range(len(leaves_colors)), leaves_colors.values))
+        Z = self.linkage
+
+        # As per https://stackoverflow.com/a/38208611/13168978:
+        # notes:
+        # * rows in Z correspond to "inverted U" links that connect clusters
+        # * rows are ordered by increasing distance
+        # * if the colors of the connected clusters match, use that color for link
+        link_cols = {}
+
+        nr_leaves = len(Z) + 1
+        for i, i12 in enumerate(Z[:, :2].astype(int)):
+            c1, c2 = (link_cols[x] if x > nr_leaves-1 else leaf_colors_dict[x]
+                      for x in i12)
+            link_cols[i+nr_leaves] = c1 if c1 == c2 else 'k'
+
+        _ = shc.dendrogram(
+            self.linkage, truncate_mode='lastp', ax=ax,
+            link_color_func=lambda x: link_cols[x], **shc_dendro_kwargs)
+
         return fig, ax
 
 
@@ -636,7 +726,7 @@ class Decomposition:
         clust = Clustering(
             res, cells_ids, repr(method), method_obj=method,
             method_args=method_args, method_kwargs=method_kwargs)
-        cluster_labels = clust.clusters_series.values.astype(int) - 1
+        cluster_labels = clust.labels.values.astype(int) - 1
         clust.score = silhouette_score(self.proj_vectors, cluster_labels,
                                        metric='euclidean')
         if append or len(self.clusterings) == 0:
@@ -651,7 +741,7 @@ class Decomposition:
             self.proj_vectors, cells_ids, **kwargs)
         metric = kwargs.get('metric', 'euclidean')
         for clust in clustering.levels:
-            cluster_labels = clust.clusters_series.values.astype(int) - 1
+            cluster_labels = clust.labels.values.astype(int) - 1
             clust.score = silhouette_score(self.proj_vectors, cluster_labels,
                                            metric=metric)
         self.clusterings.append(clustering)
@@ -672,11 +762,10 @@ class Decomposition:
             oslom_opt_params=oslom_opt_params)
         self.clusterings.append(clustering)
         return clustering
-    
-    
+
+
     def add_sbm_hierarchy(self, state, cells_ids, **sbm_kwargs):
         clustering = HierarchicalClustering.from_sbm_res(
             state, cells_ids, **sbm_kwargs)
         self.clusterings.append(clustering)
         return clustering
-    
