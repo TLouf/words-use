@@ -9,11 +9,7 @@ def split_task(fun, num_cpus, list_iter, *fun_args, **fun_kwargs):
     bounds = np.linspace(0, len(list_iter), num_cpus+1).astype(int)
     sub_list_iter = [list_iter[bounds[i]:bounds[i+1]] for i in range(num_cpus)]
 
-    @ray.remote
-    def remote_fun(sub_list, *fun_args, **fun_kwargs):
-        return fun(sub_list, *fun_args, **fun_kwargs)
-
-    obj_refs = [remote_fun.remote(sub_list, *fun_args, **fun_kwargs)
+    obj_refs = [remote_fun.remote(fun, sub_list, *fun_args, **fun_kwargs)
                 for sub_list in sub_list_iter]
     return obj_refs
 
@@ -25,12 +21,19 @@ def fast_combine(combine_fun, list_elems):
     then the results of these combinations two by two, etc recursively until
     there's nothing left to combine.
     '''
-    @ray.remote
-    def combine_remote(x, y):
-        return combine_fun(x, y)
-
     while len(list_elems) > 1:
-        list_elems = list_elems[2:] + [combine_remote.remote(list_elems[0],
+        list_elems = list_elems[2:] + [combine_remote.remote(combine_fun,
+                                                             list_elems[0],
                                                              list_elems[1])]
 
     return list_elems
+
+
+@ray.remote
+def combine_remote(combine_fun, x, y):
+    return combine_fun(x, y)
+
+
+@ray.remote
+def remote_fun(fun, sub_list, *fun_args, **fun_kwargs):
+    return fun(sub_list, *fun_args, **fun_kwargs)
