@@ -1,8 +1,7 @@
 import os
 import re
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
 from string import Formatter
 from dotenv import load_dotenv
 load_dotenv()
@@ -58,23 +57,24 @@ class ProjectPaths:
     proj: Path = Path(os.environ['PROJ_DIR'])
     oslom: Path = Path(os.environ['OSLOM_DIR'])
     source_fname_fmt: str = '{kind}_{from}_{to}_{cc}.json.gz'
-    counts_fname_fmt: str = '{kind}_lang={lc}_cc={cc}_years={year_from}-{year_to}.parquet'
+    counts_fname_fmt: str = ('{kind}_lang={lc}_cc={cc}_years={year_from}'
+                             '-{year_to}_cell_size={cell_size}.parquet')
     cluster_fig_fname_fmt: str = (
         'clusters_method={method_repr}{kwargs_str}_word_vec_var={word_vec_var}'
         '_decomposition={decomposition}.pdf')
     net_fname_fmt: str = (
         'net_metric={metric}_transfo={transfo_str}_word_vec_var={word_vec_var}'
         '_decomposition={decomposition}.dat')
-    source_fmt: Optional[Path] = None
-    proj_data: Optional[Path] = None
-    ext_data: Optional[Path] = None
-    raw_data: Optional[Path] = None
-    interim_data: Optional[Path] = None
-    processed_data: Optional[Path] = None
-    counts_files_fmt: Optional[Path] = None
-    shp_file_fmt: Optional[Path] = None
-    figs: Optional[Path] = None
-    cluster_fig_fmt: Optional[Path] = None
+    source_fmt: Path = field(init=False)
+    proj_data: Path = field(init=False)
+    ext_data: Path = field(init=False)
+    raw_data: Path = field(init=False)
+    interim_data: Path = field(init=False)
+    processed_data: Path = field(init=False)
+    counts_files_fmt: Path = field(init=False)
+    shp_file_fmt: Path = field(init=False)
+    figs: Path = field(init=False)
+    cluster_fig_fmt: Path = field(init=False)
 
     def __post_init__(self):
         self.source_fmt = self.source_data / self.source_fname_fmt

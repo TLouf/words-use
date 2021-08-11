@@ -91,9 +91,8 @@ class Region:
     def read_counts(self, df_name, files_fmt=None):
         if hasattr(self, df_name):
             if getattr(self, df_name) is None:
-                parquet_file = str(files_fmt).format(
-                    kind=df_name, lc=self.lc, cc=self.cc,
-                    year_from=self.year_from, year_to=self.year_to)
+                reg_dict = self.to_dict()
+                parquet_file = str(files_fmt).format(kind=df_name, **reg_dict)
                 setattr(self, df_name, pd.read_parquet(parquet_file))
             return getattr(self, df_name)
         else:
