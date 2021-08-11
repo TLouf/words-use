@@ -3,7 +3,7 @@ import pickle
 import inspect
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
-from typing import List, Optional
+from typing import List, Optional, Union
 import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -15,6 +15,7 @@ import libpysal
 import src.utils.geometry as geo
 import src.utils.parallel as parallel
 import src.utils.paths as paths_utils
+import src.utils.smooth as smooth
 import src.visualization.maps as map_viz
 import src.data.word_counts as word_counts
 import src.data.clustering as data_clustering
@@ -28,7 +29,7 @@ class Region:
     readable: str = ''
     xy_proj: str = 'epsg:3857'
     max_place_area: float = 5e9
-    cell_size: float = 50e3
+    cell_size: Union[float, str] = 50e3
     shape_bbox: Optional[List[float]] = None
     shapefile_name: str = 'CNTR_RG_01M_2016_4326.shp'
     shapefile_col: str = 'FID'
@@ -60,7 +61,15 @@ class Region:
         return Region.from_dict(cc, lc, d, **kwargs)
 
 
-    def get_shape_geodf(self, all_cntr_shapes=None, simplify_tol=1000):
+    def to_dict(self):
+        # custom to_dict to keep only parameters that can be in save path
+        list_attr = [
+            'lc', 'readable', 'cc', 'year_from', 'year_to', 'cell_size',
+            'max_place_area', 'xy_proj']
+        return {attr: getattr(self, attr) for attr in list_attr}
+
+
+    def get_shape_geodf(self, all_cntr_shapes=None, simplify_tol=100):
         if self.shape_geodf is None:
             col = self.shapefile_col
             mask = all_cntr_shapes[col].str.startswith(self.shapefile_val)
@@ -115,25 +124,27 @@ class Language:
     all_cntr_shapes: InitVar[geopd.GeoDataFrame]
     year_from: int = 2015
     year_to: int = 2021
-    cc: Optional[str] = None
+    cc: str = field(init=False)
     latlon_proj: str = 'epsg:4326'
     min_nr_cells: int = 10
     cell_tokens_th: float = 1e4
     cell_tokens_decade_crit: float = 2.
-    cells_geodf: Optional[geopd.GeoDataFrame] = None
+    cells_geodf: geopd.GeoDataFrame = field(init=False)
     global_counts: Optional[pd.DataFrame] = None
     raw_cell_counts: Optional[pd.DataFrame] = None
     words_prior_mask: Optional[pd.Series] = None
     cell_counts: Optional[pd.DataFrame] = None
     relevant_cells: Optional[pd.Index] = None
     word_counts_vectors: Optional[np.ndarray] = None
-    word_vec_var: str = 'polar'
+    word_vec_var: str = ''
     word_vectors: Optional[np.ndarray] = None
     cdf_th: float = 0.99
     width_ratios: Optional[np.ndarray] = None
     decompositions: List[data_clustering.Decomposition] = field(default_factory=list)
     z_th: float = 10
     p_th: float = 0.01
+    smoothing_token_th: float = 1e6
+    cell_sums: Optional[np.ndarray] = None
 
     def __post_init__(self, all_cntr_shapes):
         self.list_cc, self.regions = zip(*sorted(
@@ -144,6 +155,9 @@ class Language:
                .to_crs(self.latlon_proj)
             for reg in self.regions
             ])
+        # To get the shape anyway when `cells_geodf` has been provided in init.
+        for reg in self.regions:
+            _ = reg.get_shape_geodf(all_cntr_shapes)
 
 
     @classmethod
@@ -172,7 +186,7 @@ class Language:
         # custom to_dict to keep only parameters that can be in save path
         list_attr = [
             'lc', 'readable', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
-            'cell_tokens_th', 'word_vec_var', 'cdf_th']
+            'cell_tokens_th', 'word_vec_var', 'cdf_th', 'smoothing_token_th']
         return {attr: getattr(self, attr) for attr in list_attr}
 
 
@@ -241,9 +255,13 @@ class Language:
             cell_counts = word_counts.filter_part_multidx(
                 self.raw_cell_counts, [self.words_prior_mask])
 
-            cell_sum = cell_counts.groupby('cell_id')['count'].sum()
+            # Reindex to have all cells (useful when self.cell_tokens_th == 0).
+            cell_sum = (cell_counts.groupby('cell_id')['count']
+                                   .sum()
+                                   .reindex(self.cells_geodf.index)
+                                   .fillna(0))
             sum_th = self.cell_tokens_th
-            cell_is_relevant = cell_sum > sum_th
+            cell_is_relevant = cell_sum >= sum_th
             self.relevant_cells = cell_is_relevant.loc[cell_is_relevant].index
             print(f'Keeping {self.relevant_cells.shape[0]} cells out of '
                   f'{cell_is_relevant.shape[0]} with threshold {sum_th:.2e}')
@@ -308,8 +326,7 @@ class Language:
     def get_width_ratios(self, ratio_lgd=None):
         self.width_ratios = np.ones(len(self.list_cc) + 1)
         for i, reg in enumerate(self.regions):
-            min_lon, min_lat, max_lon, max_lat = (
-                reg.shape_geodf.geometry.to_crs(self.latlon_proj).total_bounds)
+            min_lon, min_lat, max_lon, max_lat = reg.get_total_bounds()
             # For a given longitude extent, the width is maximum the closer to the
             # equator, so the closer the latitude is to 0.
             eq_not_crossed = int(min_lat * max_lat > 0)
@@ -325,27 +342,59 @@ class Language:
         return self.width_ratios
 
 
-    def get_word_counts_vectors(self, k=10):
-        if self.word_counts_vectors is None:
-            self.cell_counts = self.get_cell_counts()
-            self.cell_counts['exists'] = self.cell_counts['count'] >= 1
-            grouped_counts = self.cell_counts.groupby('cell_id')
-            max_rank = grouped_counts['exists'].sum().min()
-            word_ranks_by_cell = grouped_counts['count'].rank(ascending=False)
-            words_to_keep = (
-                word_ranks_by_cell.loc[word_ranks_by_cell <= max_rank]
-                                  .index
-                                  .unique(level='word'))
-            ## TODO: this is not very satisfactory
-            count_th = k * self.relevant_cells.shape[0]
-            tail_mask = (self.global_counts.index.isin(words_to_keep)
-                         & (self.global_counts['count'] > count_th))
-            self.cell_counts['cell_sum'] = grouped_counts['count'].transform('sum')
-            dropped_cols = ['exists', 'cell_sum']
-            self.cell_counts = self.cell_counts.drop(columns=dropped_cols)
-            self.global_counts['tail_mask'] = tail_mask
+    def get_word_counts_vectors(
+        self, token_th=1e6, presence_th=5, max_global_rank=1e4,
+        smooth_wdist_fun=smooth.gaussian, **smooth_wdist_fun_kwargs
+    ):
+        to_recalc = (self.word_counts_vectors is None
+                     or self.smoothing_token_th != token_th)
+        to_smooth = token_th is not None
+
+        if to_recalc and to_smooth:
+            self.smoothing_token_th = token_th
+            cell_counts = self.get_cell_counts()
+            ordered_neighbors, nn_ordered_d = smooth.order_nn(self.cells_geodf)
+            cells_index = self.cells_geodf.index.sort_values()
+            nn_token_sums, nn_bw_mask = smooth.count_bw(
+                cell_counts, cells_index, ordered_neighbors, token_th)
+            nn_weights = smooth.calc_kernel_weights(
+                nn_ordered_d, nn_bw_mask, nn_token_sums,
+                wdist_fun=smooth_wdist_fun, **smooth_wdist_fun_kwargs)
+            cell_counts_mat, max_rank = smooth.get_smoothed_counts(
+                cell_counts, cells_index, ordered_neighbors, nn_weights,
+                presence_th=presence_th)
+            print(f'done, max_rank: {max_rank}')
+            self.cell_sums = np.asarray(cell_counts_mat.sum(axis=1)).flatten()
+
+            word_counts_vectors, word_idc = word_counts.rank_filter(
+                cell_counts_mat, max_rank)
+
+            ordered_words = self.global_counts.index.argsort()
+            self.global_counts['tail_mask'] = False
+            col_idc = self.global_counts.columns.get_loc('tail_mask')
+            ordered_words_in_mat = ordered_words[word_idc]
+            th_idx = (self.global_counts['count'] > 1e4).argmin()
+            rows_to_keep = ordered_words_in_mat[ordered_words_in_mat < th_idx]
+            self.global_counts.iloc[rows_to_keep, col_idc] = True
+
+            # Reorder cols of word_counts_vectors to match ordering of global_counts.
+            # idx_to_reorder = rows_to_keep.argsort()
+            idx_to_reorder = ordered_words_in_mat.argsort()
+            nr_keep = (ordered_words_in_mat < th_idx).sum()
+            word_counts_vectors = word_counts_vectors[:, idx_to_reorder]
+            word_counts_vectors = word_counts_vectors[:, :nr_keep]
+            self.word_counts_vectors = word_counts_vectors
+
+        elif to_recalc and max_global_rank is not None:
+            self.global_counts['tail_mask'] = False
+            col = self.global_counts.columns.get_loc('tail_mask')
+            rows = np.arange(max_global_rank, dtype=int)
+            self.global_counts.iloc[rows, col] = True
+            cell_counts = self.get_cell_counts()
+            self.cell_sums = cell_counts.groupby('cell_id')['count'].sum().values
             self.word_counts_vectors = word_counts.to_vectors(
                 self.cell_counts, self.global_counts['tail_mask'])
+
         return self.word_counts_vectors
 
 
@@ -356,18 +405,23 @@ class Language:
         _ = self.get_word_counts_vectors()
 
 
-    def get_word_vectors(self):
-        if self.word_vectors is None:
-            self.word_counts_vectors = self.get_word_counts_vectors()
+    def get_word_vectors(self, word_vec_var='', weights_class=None, **weights_kwargs):
+        if self.word_vectors is None or word_vec_var != self.word_vec_var:
+            self.word_vec_var = word_vec_var
+            word_counts_vectors = self.get_word_counts_vectors()
             tail_mask = self.global_counts['tail_mask']
 
-            kwargs = {'word_vec_var': self.word_vec_var}
+            kwargs = {'word_vec_var': word_vec_var,
+                      'cell_sums': self.cell_sums,
+                      'global_sum': self.global_counts['count'].sum()}
             if self.word_vec_var == 'Gi_star':
-                kwargs['w'] = libpysal.weights.Queen.from_dataframe(
-                    self.cells_geodf.loc[self.relevant_cells])
+                if weights_class is None:
+                    weights_class = libpysal.weights.Queen
+                kwargs['w'] = weights_class.from_dataframe(
+                    self.cells_geodf.loc[self.relevant_cells], **weights_kwargs)
 
             self.word_vectors = word_counts.vec_to_metric(
-                self.word_counts_vectors, self.global_counts.loc[tail_mask],
+                word_counts_vectors, self.global_counts.loc[tail_mask],
                 **kwargs)
         return self.word_vectors
 
@@ -376,7 +430,7 @@ class Language:
         if word_vec_var != self.word_vec_var:
             self.word_vec_var = word_vec_var
             self.word_vectors = None
-        _ = self.get_word_vectors()
+        _ = self.get_word_vectors(word_vec_var=word_vec_var)
 
 
     def calc_morans(self, num_cpus=1):
@@ -433,7 +487,7 @@ class Language:
 
 
     def make_decomposition(self, **kwargs):
-        word_mask = (self.global_counts['is_regional'] 
+        word_mask = (self.global_counts['is_regional']
                      & self.global_counts['tail_mask']).values
         pca = PCA(**kwargs).fit(self.word_vectors)
         if kwargs.get('n_components') is None:
@@ -483,7 +537,7 @@ class Language:
         decomp = self.decompositions[i_decompo]
         clustering = decomp.clusterings[i_clust]
         levels = getattr(clustering, 'levels', [clustering])
-        cluster_labels = levels[i_lvl].clusters_series
+        cluster_labels = levels[i_lvl].data['labels']
         unique_cluster_labels = np.unique(cluster_labels)
         is_regional = self.global_counts['is_regional']
         clust_words = self.global_counts.loc[is_regional].copy()
@@ -523,24 +577,24 @@ class Language:
         if normed_bboxes is None:
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
                 total_width, total_height=total_height, ratio_lgd=1/10)
-        
+
         fig, axes = plt.subplots(
             len(self.list_cc) + 1,
             figsize=(total_width/10/2.54, total_height/10/2.54))
         map_axes = axes[:-1]
         cax = axes[-1]
         cax.set_position(normed_bboxes[-1])
-        
+
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
         if vmin is None:
-        vmin = z_plot.min()
+            vmin = z_plot.min()
         if vmax is None:
-        vmax = z_plot.max()
+            vmax = z_plot.max()
         if vcenter is None:
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         else:
             norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
-        
+
         for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
             ax.set_position(bbox)
             plot_df = reg.cells_geodf.join(plot_series, how='inner')
@@ -552,7 +606,7 @@ class Language:
 
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         _ = fig.colorbar(sm, cax=cax, label=cbar_label)
-        
+
         if show:
             fig.show()
         if save_path:
@@ -568,7 +622,7 @@ class Language:
         is_regional = self.global_counts['is_regional']
         word_idx = self.global_counts.loc[is_regional].index.get_loc(word)
         z_plot = self.word_vectors[:, word_idx]
-    
+
         fig, axes = self.map_continuous_choro(
             z_plot, total_width=total_width, total_height=total_height,
             cmap=cmap, vcenter=vcenter, vmin=vmin, vmax=vmax,

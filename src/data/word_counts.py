@@ -1,6 +1,8 @@
 import re
 import numpy as np
 import scipy.stats
+import scipy.sparse
+from numba import njit, prange
 import geopandas as geopd
 from shapely.geometry import Point
 from esda.getisord import G_Local
@@ -267,31 +269,106 @@ def to_vectors(cell_counts, mask):
     return word_vectors.T
 
 
-def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='', w=None):
+@njit(parallel=True)
+def get_top_words_count(data, indices, indptr, max_rank):
+    # cells x words
+    nrows = indptr.shape[0] - 1
+    print(nrows)
+    col_top_idc = np.empty((nrows, max_rank), dtype=np.int32)
+    for i in prange(nrows):
+        row_idc = indices[indptr[i]: indptr[i+1]]
+        row_data = data[indptr[i]: indptr[i+1]]
+        col_top_idc[i, :] = row_idc[row_data.argsort()[-max_rank:]]
+    top_uidc = np.unique(col_top_idc)
+
+    word_counts_vectors = np.zeros((nrows, top_uidc.shape[0]), dtype=np.float64)
+    for i in prange(nrows):
+        row_idc = indices[indptr[i]: indptr[i+1]]
+        list_mat_iloc = []
+        list_data_iloc = []
+        # The following works because top_uidc and row_idc are sorted.
+        m = 0
+        for k, uid in enumerate(top_uidc):
+            if uid == row_idc[m]:
+                list_mat_iloc.append(k)
+                list_data_iloc.append(m)
+                m += 1
+        mat_iloc = np.asarray(list_mat_iloc)
+        data_iloc = np.asarray(list_data_iloc)
+        row_data = data[indptr[i]: indptr[i+1]][data_iloc]
+        word_counts_vectors[i][mat_iloc] = row_data
+
+    return word_counts_vectors, top_uidc
+
+
+@njit(parallel=True)
+def get_top_words_idc(data, indices, indptr, max_rank):
+    # cells x words
+    nrows = indptr.shape[0] - 1
+    print(nrows)
+    col_top_idc = np.empty((nrows, max_rank), dtype=np.int32)
+    for i in prange(nrows):
+        row_idc = indices[indptr[i]: indptr[i+1]]
+        row_data = data[indptr[i]: indptr[i+1]]
+        col_top_idc[i, :] = row_idc[row_data.argsort()[-max_rank:]]
+    top_uidc = np.unique(col_top_idc)
+
+    return top_uidc
+
+
+def rank_filter(cell_counts_mat, max_rank):
+    # Take max_rank of the top words from each cell. Does not work properly if
+    # max_rank == 0, but well that shouldn't happen.
+    word_counts_vectors = cell_counts_mat.tocsr()
+    data = word_counts_vectors.data
+    indices = word_counts_vectors.indices
+    indptr = word_counts_vectors.indptr
+    word_idc = get_top_words_idc(data, indices, indptr, max_rank)
+
+    word_counts_vectors = word_counts_vectors.toarray()[:, word_idc]
+    print(word_counts_vectors.shape, word_idc)
+    return word_counts_vectors, word_idc
+
+
+def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='',
+                  cell_sums=None, global_sum=None, w=None):
     '''
     Transforms `word_vectors`, the matrix of cell counts obtained with
     `to_vectors` above, to cell proportions, and a metric given by
     `word_vec_var`, if given. If not, or if it does not match one of the
     implemented metrics, return the  proportions.
     '''
-    word_vectors = (word_counts_vectors.T / word_counts_vectors.sum(axis=1)).T
+    if global_sum is None:
+        global_sum = reg_counts['count'].sum()
+
+    if cell_sums is None:
+        cell_sums = word_counts_vectors.sum(axis=1)
+
+    word_vectors = (word_counts_vectors.T / cell_sums).T
 
     if word_vec_var == 'normed_freqs':
-        reg_distrib = (reg_counts['count'] / reg_counts['count'].sum()).values
-        word_vectors -= reg_distrib
+        reg_distrib = (reg_counts['count'] / global_sum).values
+        word_vectors = word_vectors - reg_distrib
         word_vectors = word_vectors / np.abs(word_vectors).max(axis=0)
 
     elif word_vec_var == 'polar':
-        reg_distrib = (reg_counts['count'] / reg_counts['count'].sum()).values
+        reg_distrib = (reg_counts['count'] / global_sum).values
         word_vectors = ((word_vectors - reg_distrib)
                         / (word_vectors + reg_distrib))
 
     elif word_vec_var == 'Gi_star':
-        ## permutations??
         for idx_word in range(word_vectors.shape[1]):
+            print(idx_word, end='\r')
             y = word_vectors[:, idx_word]
             lg_star = My_G_local(y, w, transform='R', star=True, permutations=0)
             word_vectors[:, idx_word] = lg_star.Zs
+
+    elif word_vec_var == 'z_score':
+        reg_distrib = (reg_counts['count'] / global_sum).values
+        diff = word_vectors - reg_distrib
+        n = word_vectors.shape[0]
+        std = np.sqrt(np.sum(diff**2, axis=0) / (n-1))
+        word_vectors = diff / std
 
     elif 'tf-idf' in word_vec_var:
         total_nr_cells = reg_counts['nr_cells'].max()
