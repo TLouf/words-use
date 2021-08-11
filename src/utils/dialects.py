@@ -38,7 +38,7 @@ class Region:
     region_counts: Optional[pd.DataFrame] = None
     raw_cell_counts: Optional[pd.DataFrame] = None
     shapefile_val: Optional[str] = None
-
+    total_bounds: Optional[np.ndarray] = None
 
     def __post_init__(self):
         self.shapefile_val = self.shapefile_val or self.cc
@@ -69,6 +69,14 @@ class Region:
                 self.shape_geodf, self.cc, xy_proj=self.xy_proj,
                 bbox=self.shape_bbox, simplify_tol=simplify_tol)
         return self.shape_geodf
+
+
+    def get_total_bounds(self, crs='epsg:4326'):
+        if self.total_bounds is None:
+            shape_geodf = self.get_shape_geodf()
+            total_bounds = shape_geodf.geometry.to_crs(crs).total_bounds
+            self.total_bounds = total_bounds
+        return self.total_bounds
 
 
     def get_cells_geodf(self, **kwargs):
@@ -510,9 +518,9 @@ class Language:
 
 
     def map_continuous_choro(self, z_plot, normed_bboxes=None, total_width=178,
-                             total_height=None, cmap=None, vcenter=None,
-                             cbar_label=None, save_path=None, show=True,
-                             **plot_kwargs):
+                             total_height=None, cmap=None, vmin=None, vmax=None,
+                             vcenter=None, cbar_label=None, save_path=None,
+                             show=True, **plot_kwargs):
         if normed_bboxes is None:
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
                 total_width, total_height=total_height, ratio_lgd=1/10)
@@ -525,7 +533,9 @@ class Language:
         cax.set_position(normed_bboxes[-1])
         
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
+        if vmin is None:
         vmin = z_plot.min()
+        if vmax is None:
         vmax = z_plot.max()
         if vcenter is None:
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -537,7 +547,8 @@ class Language:
             plot_df = reg.cells_geodf.join(plot_series, how='inner')
             plot_df.plot(column='z', ax=ax, norm=norm, cmap=cmap,
                          **plot_kwargs)
-            reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black')
+            reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black',
+                                 linewidth=0.5)
             ax.set_axis_off()
 
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -552,7 +563,7 @@ class Language:
 
 
     def map_word(self, word, total_width=178, total_height=None, vcenter=0,
-                 cmap='bwr', **plot_kwargs):
+                 vmin=None, vmax=None, cmap='bwr', **plot_kwargs):
         cbar_label = f'{self.word_vec_var} of {word}'
         # assumes moran has been done
         is_regional = self.global_counts['is_regional']
@@ -561,7 +572,8 @@ class Language:
     
         fig, axes = self.map_continuous_choro(
             z_plot, total_width=total_width, total_height=total_height,
-            cmap=cmap, vcenter=vcenter, cbar_label=cbar_label, **plot_kwargs)
+            cmap=cmap, vcenter=vcenter, vmin=vmin, vmax=vmax,
+            cbar_label=cbar_label, **plot_kwargs)
         return fig, axes
 
 
@@ -602,21 +614,21 @@ class Language:
             if len(self.list_cc) == 1:
                 axes = (axes,)
 
-            if level.clusters_series is None:
-                level.clusters_series = level.get_clusters_series(
-                    self.relevant_cells)
+            if cmap is not None:
+                level.attr_color_to_labels(cmap=cmap)
 
-            label_color = level.attr_color_to_labels(cmap=cmap)
+            label_color = level.colors
             for ax, reg, bbox in zip(axes, self.regions, normed_bboxes):
                 ax.set_position(bbox)
-                cc_geodf = reg.cells_geodf.join(level.clusters_series,
+                cc_geodf = reg.cells_geodf.join(level.labels,
                                                 how='inner')
-                for label, label_geodf in cc_geodf.groupby('clusters'):
+                for label, label_geodf in cc_geodf.groupby('labels'):
                     # Don't put a cmap in kwargs['plot'] because here we use a
                     # fixed color per cluster.
                     label_geodf.plot(ax=ax, color=label_color[label],
                                     **kwargs.get('plot', {}))
-                reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black')
+                reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black',
+                                     linewidth=0.5)
                 ax.set_axis_off()
 
             # The colours will correspond because groupby sorts by the column by
