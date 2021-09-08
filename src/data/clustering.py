@@ -400,15 +400,20 @@ def rearrange_levels_x_clust(levels_x_clust):
         inv_reorder[reorder] = np.arange(max_nr_clusters)
         list_inv_reorders.append(inv_reorder)
 
-    m[-1, :] = np.arange(1, max_nr_clusters+1)
-    m[:, -1] = max_nr_clusters
+    max_mask = (m.T == m[:, -1]).T
+    m[max_mask] = max_nr_clusters
 
+    has_changed_mat = m[1:, :] != m[:-1, :]
     for i in range(1, max_nr_clusters-1):
-        has_changed = m[i, :] != m[i-1, :]
+        has_changed = has_changed_mat[i-1]
         if has_changed.any():
             prev_row = m[i-1, has_changed]
-            m[i, has_changed] = prev_row + 1 - 2 * int(prev_row[0] > max_nr_clusters/2)
+            taken_values = np.unique(m[i, ~has_changed])
+            available_values = np.setdiff1d(np.arange(1, max_nr_clusters+1), taken_values)
+            new_value = available_values[np.argmin(np.abs(available_values - prev_row[0]))]
+            m[i, has_changed] = new_value #prev_row + 1 - 2 * int(prev_row[np.argmax(np.abs(prev_row - max_nr_clusters/2))] > max_nr_clusters/2)
 
+    m[-1, :] = np.arange(1, max_nr_clusters+1)
     for inv_reorder in list_inv_reorders[::-1]:
         m = m[:, inv_reorder]
 
@@ -533,27 +538,23 @@ class HierarchicalClustering:
         '''
         From a matrix (n_samples x n_levels), returns a matrix (n_levels x
         max_nr_clusters) giving the assignment of the lowest level's clusters at
-        higher levels, thus showing which clusters get aggregated with which at each
-        aggregation step.
+        higher levels, thus showing which clusters get aggregated with which at
+        each aggregation step.
         '''
         n_lvls = len(self.levels)
         sorted_levels = sorted(self.levels, key=lambda x: getattr(x, 'nr_clusters'))
         levels_x_clust = np.zeros((n_lvls, n_lvls + 1), dtype=int)
         levels_x_clust[-1, :] = np.arange(0, n_lvls + 1)
         for i in range(n_lvls-2, -1, -1):
-            # mask = self.labels != 'homeless'
-            # clust_arr = (
-            #     self.labels..values
-            #             .astype(int))
-            # clust_arr = clust_arr - 1
             lvl_clusts = sorted_levels[i].labels.values.astype(int) - 1
             lower_lvl_clusts = sorted_levels[i+1].labels.values.astype(int) - 1
             # For every cluster in the lower level,
             for clust in np.unique(lower_lvl_clusts):
-                # we select the higher level cluster to which it belongs. Because we
-                # started from the less aggregated level, all members of that
-                # cluster will belong to the same cluster in the more aggregated
-                # level, so we take the higher level cluster of the first one.
+                # We select the higher level cluster to which it belongs.
+                # Because we started from the less aggregated level, all members
+                # of that cluster will belong to the same cluster in the more
+                # aggregated level, so we take the higher level cluster of the
+                # first one.
                 agg_lvl = lvl_clusts[lower_lvl_clusts == clust][0]
                 levels_x_clust[i, :][levels_x_clust[i+1, :] == clust] = agg_lvl
         levels_x_clust += 1
@@ -601,7 +602,7 @@ class HierarchicalClustering:
             link_cols[i+nr_leaves] = c1 if c1 == c2 else 'k'
 
         _ = shc.dendrogram(
-            self.linkage, truncate_mode='lastp', ax=ax,
+            self.linkage, truncate_mode='level', ax=ax, p=len(self.levels),
             link_color_func=lambda x: link_cols[x], **shc_dendro_kwargs)
 
         return fig, ax
