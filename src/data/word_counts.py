@@ -1,12 +1,16 @@
+from typing import Optional
 import re
 import numpy as np
 import scipy.stats
 import scipy.sparse
 from numba import njit, prange
+import pandas as pd
 import geopandas as geopd
 from shapely.geometry import Point
+import libpysal
 from esda.getisord import G_Local
 import src.data.text_process as text_process
+import src.utils.smooth as smooth
 
 
 class My_G_local(G_Local):
@@ -379,3 +383,202 @@ def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='',
             word_vectors = word_vectors * np.log(1/doc_freqs)
 
     return word_vectors
+
+
+_WORD_COUNTS_VEC_ATTR = [
+    'token_th', 'presence_th', 'max_global_rank',
+    'smooth_wdist_fun', 'smooth_wdist_fun_kwargs'
+]
+class WordCountsVectors(np.ndarray):
+    '''
+    np.ndarray subclass to store the parameters relative to its calculation.
+    '''
+    def __new__(
+        cls,
+        input_array: np.ndarray,
+        cell_sums: Optional[np.ndarray] = None,
+        token_th: float = None,
+        presence_th: float = None,
+        max_global_rank: float = None,
+        smooth_wdist_fun: Optional[callable] = None,
+        smooth_wdist_fun_kwargs: dict = None,
+    ):
+        # Input array is an already formed ndarray instance
+        # We first cast to be our class type
+        obj = np.asarray(input_array).view(cls)
+        # add the new attribute to the created instance
+        obj.cell_sums = cell_sums
+        obj.token_th = token_th
+        obj.presence_th = presence_th
+        obj.max_global_rank = max_global_rank
+        obj.smooth_wdist_fun = smooth_wdist_fun
+        if smooth_wdist_fun_kwargs is None:
+            smooth_wdist_fun_kwargs = {}
+        obj.smooth_wdist_fun_kwargs = smooth_wdist_fun_kwargs
+        # Finally, we must return the newly created object:
+        return obj
+
+
+    def __array_finalize__(self, obj):
+        if obj is None: return
+        for attr in _WORD_COUNTS_VEC_ATTR:
+            setattr(self, attr, getattr(obj, attr, None))
+        self.cell_sums = getattr(obj, 'cell_sums', None)
+
+
+    @classmethod
+    def from_lang(cls, lang, **init_kwargs):
+        cell_counts = lang.get_cell_counts()
+
+        if init_kwargs.get('token_th') is not None:
+            ordered_neighbors, nn_ordered_d = smooth.order_nn(lang.cells_geodf)
+            cells_index = lang.cells_geodf.index.sort_values()
+            nn_token_sums, nn_bw_mask = smooth.count_bw(
+                cell_counts, cells_index, ordered_neighbors, init_kwargs.get('token_th'))
+            nn_weights = smooth.calc_kernel_weights(
+                nn_ordered_d, nn_bw_mask, nn_token_sums,
+                wdist_fun=init_kwargs['smooth_wdist_fun'],
+                **init_kwargs['smooth_wdist_fun_kwargs'])
+            cell_counts_mat, max_rank = smooth.get_smoothed_counts(
+                cell_counts, cells_index, ordered_neighbors, nn_weights,
+                presence_th=init_kwargs.get('presence_th'))
+            print(f'done, max_rank: {max_rank}')
+            cell_sums = np.asarray(cell_counts_mat.sum(axis=1)).flatten()
+
+            word_counts_vectors, word_idc = rank_filter(
+                cell_counts_mat, max_rank)
+
+            ordered_words = lang.global_counts.index.argsort()
+            lang.global_counts['tail_mask'] = False
+            col_idc = lang.global_counts.columns.get_loc('tail_mask')
+            ordered_words_in_mat = ordered_words[word_idc]
+            th_idx = (lang.global_counts['count'] > 1e4).argmin()
+            rows_to_keep = ordered_words_in_mat[ordered_words_in_mat < th_idx]
+            lang.global_counts.iloc[rows_to_keep, col_idc] = True
+
+            # Reorder cols of word_counts_vectors to match ordering of
+            # lang.global_counts.
+            idx_to_reorder = ordered_words_in_mat.argsort()
+            nr_keep = (ordered_words_in_mat < th_idx).sum()
+            word_counts_vectors = word_counts_vectors[:, idx_to_reorder]
+            word_counts_vectors = word_counts_vectors[:, :nr_keep]
+            array = word_counts_vectors
+
+        else:
+            lang.global_counts['tail_mask'] = False
+            col = lang.global_counts.columns.get_loc('tail_mask')
+            rows = np.arange(init_kwargs['max_global_rank'], dtype=int)
+            lang.global_counts.iloc[rows, col] = True
+            cell_sums = cell_counts.groupby('cell_id')['count'].sum().values
+            array = to_vectors(
+                cell_counts, lang.global_counts['tail_mask'])
+
+        return cls(array, cell_sums=cell_sums, **init_kwargs)
+
+
+    def to_dict(self):
+        return {
+            attr: getattr(self, attr)
+            for attr in _WORD_COUNTS_VEC_ATTR
+            if getattr(self, attr) is not None
+        }
+
+
+_WORD_VEC_ATTR = [
+    'word_vec_var', 'spatial_weights_class', 'spatial_weights_kwargs',
+    'var_th', 'z_th', 'p_th'
+]
+class WordVectors(np.ndarray):
+
+    def __new__(
+        cls,
+        input_array: np.ndarray,
+        word_vec_var: str = '',
+        spatial_weights_class: Optional[libpysal.weights.W] = None,
+        spatial_weights_kwargs: Optional[dict] = None,
+        var_th: Optional[float] = None,
+        z_th: Optional[float] = None,
+        p_th: Optional[float] = None,
+    ):
+        obj = np.asarray(input_array).view(cls)
+        obj.word_vec_var = word_vec_var
+        obj.spatial_weights_class = spatial_weights_class
+        if spatial_weights_kwargs is None:
+            spatial_weights_kwargs = {}
+        obj.spatial_weights_kwargs = spatial_weights_kwargs
+        obj.var_th = var_th
+        obj.z_th = z_th
+        obj.p_th = p_th
+        return obj
+
+
+    def __array_finalize__(self, obj):
+        if obj is None: return
+        for attr in _WORD_VEC_ATTR:
+            setattr(self, attr, getattr(obj, attr, None))
+
+
+    @classmethod
+    def from_lang(cls, lang, **init_kwargs):
+        word_counts_vectors = lang.word_counts_vectors
+        tail_mask = lang.global_counts['tail_mask']
+
+        kwargs = {'word_vec_var': init_kwargs.get('word_vec_var'),
+                  'cell_sums': word_counts_vectors.cell_sums,
+                  'global_sum': lang.global_counts['count'].sum()}
+
+        if kwargs['word_vec_var'] == 'Gi_star':
+            kwargs['w'] = init_kwargs['spatial_weights_class'].from_dataframe(
+                lang.cells_geodf.loc[lang.relevant_cells],
+                **init_kwargs.get('spatial_weights_kwargs', {})
+            )
+
+        array = vec_to_metric(
+            word_counts_vectors,
+            lang.global_counts.loc[tail_mask],
+            **kwargs
+        )
+
+        return cls(array, **init_kwargs)
+
+
+    def to_dict(self):
+        return {
+            attr: getattr(self, attr)
+            for attr in _WORD_VEC_ATTR
+            if getattr(self, attr) is not None
+        }
+
+
+    def filter(self, lang):
+        tail_mask = lang.global_counts['tail_mask']
+
+        if self.var_th is None:
+            # assumes moran has been done
+            is_regional = (
+                (lang.global_counts['z_value'] > self.z_th)
+                & (lang.global_counts['p_value'] < self.p_th)
+            )
+        else:
+            mask_index = tail_mask.loc[tail_mask].index
+            var = self.var(axis=0)
+            mean = self.mean(axis=0)
+            mask_values = var > self.var_th
+            is_regional = pd.DataFrame({'is_regional': mask_values,
+                                        'var': var,
+                                        'mean': mean},
+                                       index=mask_index)
+
+        if 'is_regional' in lang.global_counts.columns:
+            dropped_cols = is_regional.columns
+            lang.global_counts = lang.global_counts.drop(columns=dropped_cols)
+
+        lang.global_counts = lang.global_counts.join(is_regional)
+        lang.global_counts['is_regional'] = (
+            lang.global_counts['is_regional'].fillna(False))
+        mask = lang.global_counts['is_regional'].loc[tail_mask].values
+        self = self[:, mask].copy()
+        nr_kept = self.shape[1]
+        print(f'Keeping {nr_kept} words out of {mask.shape[0]}')
+
+        return self

@@ -15,7 +15,6 @@ import libpysal
 import src.utils.geometry as geo
 import src.utils.parallel as parallel
 import src.utils.paths as paths_utils
-import src.utils.smooth as smooth
 import src.visualization.maps as map_viz
 import src.data.word_counts as word_counts
 import src.data.clustering as data_clustering
@@ -135,9 +134,9 @@ class Language:
     words_prior_mask: Optional[pd.Series] = None
     cell_counts: Optional[pd.DataFrame] = None
     relevant_cells: Optional[pd.Index] = None
-    word_counts_vectors: Optional[np.ndarray] = None
+    word_counts_vectors: Optional[word_counts.WordCountsVectors] = None
     word_vec_var: str = ''
-    word_vectors: Optional[np.ndarray] = None
+    word_vectors: Optional[word_counts.WordVectors] = None
     cdf_th: float = 0.99
     width_ratios: Optional[np.ndarray] = None
     decompositions: List[data_clustering.Decomposition] = field(default_factory=list)
@@ -286,7 +285,7 @@ class Language:
         np.savetxt(save_path, self.word_counts_vectors,
                    delimiter=',', fmt='%i')
         save_path = save_path_fmt.format(
-            kind=f'word_vectors_word_vec_var={self.word_vec_var}',
+            kind=f'word_vectors_word_vec_var={self.word_counts_vectors.word_vec_var}',
             **self_dict, ext='csv.gz')
         np.savetxt(save_path, self.word_vectors, delimiter=',')
         save_path = save_path_fmt.format(kind='relevant_cells',
@@ -304,8 +303,8 @@ class Language:
         self_dict = self.to_dict()
         save_path = save_path_fmt.format(kind='word_counts_vectors',
                                          **self_dict, ext='csv.gz')
-        self.word_counts_vectors = np.loadtxt(save_path, delimiter=',',
-                                              dtype=int)
+        word_counts_vectors = np.loadtxt(save_path, delimiter=',', dtype=int)
+        self.word_counts_vectors = word_counts.WordCountsVector(array=word_counts_vectors)
         save_path = save_path_fmt.format(
             kind=f'word_vectors_word_vec_var={self.word_vec_var}',
             **self_dict, ext='csv.gz')
@@ -342,91 +341,30 @@ class Language:
         return self.width_ratios
 
 
-    def get_word_counts_vectors(
-        self, token_th=1e6, presence_th=5, max_global_rank=1e4,
-        smooth_wdist_fun=smooth.gaussian, **smooth_wdist_fun_kwargs
-    ):
-        to_recalc = (self.word_counts_vectors is None
-                     or self.smoothing_token_th != token_th)
-        to_smooth = token_th is not None
-
-        if to_recalc and to_smooth:
-            self.smoothing_token_th = token_th
-            cell_counts = self.get_cell_counts()
-            ordered_neighbors, nn_ordered_d = smooth.order_nn(self.cells_geodf)
-            cells_index = self.cells_geodf.index.sort_values()
-            nn_token_sums, nn_bw_mask = smooth.count_bw(
-                cell_counts, cells_index, ordered_neighbors, token_th)
-            nn_weights = smooth.calc_kernel_weights(
-                nn_ordered_d, nn_bw_mask, nn_token_sums,
-                wdist_fun=smooth_wdist_fun, **smooth_wdist_fun_kwargs)
-            cell_counts_mat, max_rank = smooth.get_smoothed_counts(
-                cell_counts, cells_index, ordered_neighbors, nn_weights,
-                presence_th=presence_th)
-            print(f'done, max_rank: {max_rank}')
-            self.cell_sums = np.asarray(cell_counts_mat.sum(axis=1)).flatten()
-
-            word_counts_vectors, word_idc = word_counts.rank_filter(
-                cell_counts_mat, max_rank)
-
-            ordered_words = self.global_counts.index.argsort()
-            self.global_counts['tail_mask'] = False
-            col_idc = self.global_counts.columns.get_loc('tail_mask')
-            ordered_words_in_mat = ordered_words[word_idc]
-            th_idx = (self.global_counts['count'] > 1e4).argmin()
-            rows_to_keep = ordered_words_in_mat[ordered_words_in_mat < th_idx]
-            self.global_counts.iloc[rows_to_keep, col_idc] = True
-
-            # Reorder cols of word_counts_vectors to match ordering of global_counts.
-            # idx_to_reorder = rows_to_keep.argsort()
-            idx_to_reorder = ordered_words_in_mat.argsort()
-            nr_keep = (ordered_words_in_mat < th_idx).sum()
-            word_counts_vectors = word_counts_vectors[:, idx_to_reorder]
-            word_counts_vectors = word_counts_vectors[:, :nr_keep]
-            self.word_counts_vectors = word_counts_vectors
-
-        elif to_recalc and max_global_rank is not None:
-            self.global_counts['tail_mask'] = False
-            col = self.global_counts.columns.get_loc('tail_mask')
-            rows = np.arange(max_global_rank, dtype=int)
-            self.global_counts.iloc[rows, col] = True
-            cell_counts = self.get_cell_counts()
-            self.cell_sums = cell_counts.groupby('cell_id')['count'].sum().values
-            self.word_counts_vectors = word_counts.to_vectors(
-                self.cell_counts, self.global_counts['tail_mask'])
-
+    def get_word_counts_vectors(self, **kwargs):
+        if self.word_counts_vectors is None:
+            # self.word_counts_vectors = word_counts.WordCountsVectors(**kwargs).calc(self)
+            self.word_counts_vectors = word_counts.WordCountsVectors.from_lang(self, **kwargs)
         return self.word_counts_vectors
 
 
     def set_cdf_th(self, th):
+        #TODO remove
         self.cdf_th = th
         self.word_counts_vectors = None
         self.word_vectors = None
         _ = self.get_word_counts_vectors()
 
 
-    def get_word_vectors(self, word_vec_var='', weights_class=None, **weights_kwargs):
-        if self.word_vectors is None or word_vec_var != self.word_vec_var:
-            self.word_vec_var = word_vec_var
-            word_counts_vectors = self.get_word_counts_vectors()
-            tail_mask = self.global_counts['tail_mask']
-
-            kwargs = {'word_vec_var': word_vec_var,
-                      'cell_sums': self.cell_sums,
-                      'global_sum': self.global_counts['count'].sum()}
-            if self.word_vec_var == 'Gi_star':
-                if weights_class is None:
-                    weights_class = libpysal.weights.Queen
-                kwargs['w'] = weights_class.from_dataframe(
-                    self.cells_geodf.loc[self.relevant_cells], **weights_kwargs)
-
-            self.word_vectors = word_counts.vec_to_metric(
-                word_counts_vectors, self.global_counts.loc[tail_mask],
-                **kwargs)
+    def get_word_vectors(self, **kwargs):
+        if self.word_vectors is None:
+            # self.word_vectors = word_counts.WordVectors(**kwargs).calc(self)
+            self.word_vectors = word_counts.WordVectors.from_lang(self, **kwargs)
         return self.word_vectors
 
 
     def set_word_vec_var(self, word_vec_var):
+        #TODO remove
         if word_vec_var != self.word_vec_var:
             self.word_vec_var = word_vec_var
             self.word_vectors = None
@@ -457,39 +395,20 @@ class Language:
 
 
     def filter_word_vectors(self, z_th=10, p_th=0.01, var_th=None):
-        self.word_vectors = self.get_word_vectors()
-        tail_mask = self.global_counts['tail_mask']
-        if var_th is None:
-            self.z_th = z_th
-            self.p_th = p_th
-            # assumes moran has been done
-            is_regional = ((self.global_counts['z_value'] > z_th)
-                        & (self.global_counts['p_value'] < p_th))
-        else:
-            mask_index = tail_mask.loc[tail_mask].index
-            var = self.word_vectors.var(axis=0)
-            mean = self.word_vectors.mean(axis=0)
-            mask_values = var > var_th
-            is_regional = pd.DataFrame({'is_regional': mask_values,
-                                        'var': var,
-                                        'mean': mean},
-                                       index=mask_index)
-        if 'is_regional' in self.global_counts.columns:
-            dropped_cols = is_regional.columns
-            self.global_counts = self.global_counts.drop(columns=dropped_cols)
-        self.global_counts = self.global_counts.join(is_regional)
-        self.global_counts['is_regional'] = (
-            self.global_counts['is_regional'].fillna(False))
-        mask = self.global_counts['is_regional'].loc[tail_mask].values
-        self.word_vectors = self.word_vectors[:, mask]
-        nr_kept = self.word_vectors.shape[1]
-        print(f'Keeping {nr_kept} words out of {mask.shape[0]}')
+        word_vectors = self.get_word_vectors()
+        word_vectors.z_th = z_th
+        word_vectors.p_th = p_th
+        word_vectors.var_th = var_th
+        word_vectors = word_vectors.filter(self)
+        self.word_vectors = word_vectors
 
 
     def make_decomposition(self, **kwargs):
         word_mask = (self.global_counts['is_regional']
                      & self.global_counts['tail_mask']).values
-        pca = PCA(**kwargs).fit(self.word_vectors)
+        word_vectors = self.word_vectors
+        pca = PCA(**kwargs).fit(word_vectors)
+
         if kwargs.get('n_components') is None:
             # If number of components is not specified, select them using the
             # broken stick rule.
@@ -501,11 +420,12 @@ class Language:
             n_components = np.argmin(var_pca > var_broken_stick) - 1
             new_kwargs = kwargs.copy()
             new_kwargs['n_components'] = n_components
-            pca = PCA(**new_kwargs).fit(self.word_vectors)
-        proj_vectors = pca.transform(self.word_vectors)
+            pca = PCA(**new_kwargs).fit(word_vectors)
+
+        proj_vectors = pca.transform(word_vectors)
         decomposition = data_clustering.Decomposition(
-            self.word_vec_var, pca, proj_vectors, word_mask,
-            self.z_th, self.p_th)
+            self.word_counts_vectors, word_vectors, pca, proj_vectors, word_mask,
+        )
         self.decompositions.append(decomposition)
         return decomposition
 
@@ -617,7 +537,7 @@ class Language:
 
     def map_word(self, word, total_width=178, total_height=None, vcenter=0,
                  vmin=None, vmax=None, cmap='bwr', **plot_kwargs):
-        cbar_label = f'{self.word_vec_var} of {word}'
+        cbar_label = f'{self.word_vectors.word_vec_var} of {word}'
         # assumes moran has been done
         is_regional = self.global_counts['is_regional']
         word_idx = self.global_counts.loc[is_regional].index.get_loc(word)
@@ -642,8 +562,12 @@ class Language:
         for i in comps:
             cbar_label = f'Loading of component {i}'
             z_plot = proj_vectors[:, i]
-            save_path = Path(
-                str(save_path_fmt).format(component=i, **asdict(decomp)))
+            save_path = Path(str(save_path_fmt).format(
+                component=i,
+                **asdict(decomp),
+                **decomp.word_counts_vectors.to_dict(),
+                **decomp.word_vectors.to_dict(),
+            ))
             _, _ = self.map_continuous_choro(
                 z_plot, normed_bboxes=normed_bboxes, total_width=total_width,
                 total_height=total_height, cmap=cmap, cbar_label=cbar_label,
@@ -691,7 +615,10 @@ class Language:
             if show:
                 fig.show()
             if save_path_fmt:
-                fmt_dict = {**self.to_dict(), **asdict(decomposition),
+                fmt_dict = {**self.to_dict(),
+                            **asdict(decomposition),
+                            **decomposition.word_counts_vectors.to_dict(),
+                            **decomposition.word_vectors.to_dict(),
                             **asdict(level)}
                 save_path = Path(str(save_path_fmt).format(**fmt_dict))
                 save_path.parent.mkdir(parents=True, exist_ok=True)

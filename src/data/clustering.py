@@ -15,6 +15,7 @@ import esda
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 import graph_tool.all as gt
+import src.data.word_counts as word_counts
 import src.visualization.maps as map_viz
 import src.visualization.eval as eval_viz
 from dotenv import load_dotenv
@@ -625,19 +626,21 @@ class HierarchicalClustering:
 
 @dataclass
 class Decomposition:
-    word_vec_var: str
+    word_counts_vectors: word_counts.WordCountsVectors
+    word_vectors: word_counts.WordVectors
     decomposition: PCA
     proj_vectors: np.ndarray
     word_mask: np.ndarray
-    z_th: float
-    p_th: float
     nr_comps: int = 0
     clusterings: List[Union[Clustering, HierarchicalClustering]] = field(
         default_factory=list
-        )
+    )
 
     def __post_init__(self):
         self.nr_comps = self.proj_vectors.shape[1]
+        # To save memory:
+        self.word_counts_vectors = self.word_counts_vectors[[0],[0]].copy()
+        self.word_vectors = self.word_vectors[[0],[0]].copy()
 
 
     def __str__(self):
