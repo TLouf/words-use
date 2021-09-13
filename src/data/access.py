@@ -5,9 +5,13 @@ JSON object, thus making up a row of data, and in which each key of the JSON
 strings refers to a column. Cannot use Modin or Dask because of gzip
 compression, Parquet data files would be ideal.
 '''
+from math import ceil
 import gzip
 import logging
+from shapely.geometry import Point, Polygon
 import pandas as pd
+import geopandas as geopd
+import querier
 
 LOGGER = logging.getLogger(__name__)
 
@@ -130,3 +134,132 @@ def chunkify(file_path, size=5e8):
             # file.
             if chunk_end - chunk_start < size:
                 break
+
+
+def places_from_mongo(db, filter, add_fields=None):
+    '''
+    Return the GeoDataFrame of places in database `db` matching `filter`.
+    '''
+    if add_fields is None:
+        add_fields = []
+    default_fields = ['id', 'name', 'place_type', 'bounding_box.coordinates']
+    all_fields = default_fields + add_fields
+    with querier.Connection(db) as con:
+        places = con.extract(
+            filter,
+            fields=all_fields,
+            collections_subset=['places']
+        )
+
+        all_fields.remove('bounding_box.coordinates')
+        places_dict = {key: [] for key in all_fields}
+        places_dict['geometry'] = []
+
+        for p in places:
+
+            for f in all_fields:
+                places_dict[f].append(p[f])
+
+            bbox = p['bounding_box']['coordinates'][0]
+            if bbox[0] == bbox[1]:
+                geo = Point(bbox[0])
+            else:
+                geo = Polygon(bbox)
+            places_dict['geometry'].append(geo)
+
+    raw_places_gdf = geopd.GeoDataFrame(places_dict, crs='epsg:4326').set_index('id')
+    return raw_places_gdf
+
+
+def tweets_from_mongo(db, filter, colls, add_fields=None):
+    '''
+    Return the DataFrame of tweets in the collections `colls` of the database
+    `db` matching `filter`.
+    '''
+    if add_fields is None:
+        add_fields = {}
+    default_fields = {
+        'text': 'text',
+        'coordinates.coordinates': 'coordinates',
+        'place.id': 'place_id'
+    }
+    fields_to_cols = {**default_fields, **add_fields}
+    all_fields = list(fields_to_cols.keys())
+
+    with querier.Connection(db) as con:
+        tweets = con.extract(
+            filter,
+            fields=all_fields,
+            collections_subset=colls
+        )
+
+        all_fields = [f.split('.') for f in all_fields]
+        col_names = fields_to_cols.values()
+        tweets_dict = {key: [] for key in col_names}
+
+        for t in tweets:
+            for field, col in zip(all_fields, col_names):
+                value = t.get(field[0])
+
+                if len(field) > 1 and value is not None:
+                    for part in field[1:]:
+                        value = value.get(part)
+
+                tweets_dict[col].append(value)
+
+    tweets_df = pd.DataFrame(tweets_dict).astype({'text': 'string', 'place_id': 'string'})
+    return tweets_df
+
+
+def geo_within_filter(minx, miny, maxx, maxy):
+    '''
+    From bounds defining a bounding box, return a Mongo filter of geometries
+    within this bounding box.
+    '''
+    return {
+        '$geoWithin': {
+            '$geometry': {
+                'coordinates': [[
+                    [minx, miny],
+                    [minx, maxy],
+                    [maxx, maxy],
+                    [maxx, miny],
+                    [minx, miny]
+                ]],
+                'type': 'Polygon'
+            }
+        }
+    }
+
+
+def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
+    '''
+    Returns a list of filters of ID ranges that split the elements of collection
+    `coll` of MongoDB database `db` matching `filter` into chunks of size
+    `chunnksize`. From (as I'm writing, not-yet-released) dask-mongo.
+    '''
+    match = filter._query
+    with querier.Connection(db) as con:
+        nrows = con.count_entries(filter, collection=coll)
+        npartitions = int(ceil(nrows / chunksize))
+        partitions_ids = list(
+            con._db[coll].aggregate(
+                [
+                    {"$match": match},
+                    {"$bucketAuto": {"groupBy": "$_id", "buckets": npartitions}},
+                ],
+                allowDiskUse=True,
+            )
+        )
+
+    chunk_filters = [
+        {
+            "_id": {
+                "$gte": partition["_id"]["min"],
+                "$lte" if i == npartitions - 1 else "$lt": partition["_id"]["max"]
+            }
+        }
+        for i, partition in enumerate(partitions_ids)
+    ]
+    
+    return chunk_filters
