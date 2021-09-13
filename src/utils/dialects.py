@@ -379,8 +379,8 @@ class Language:
         num_morans = self.word_vectors.shape[1]
         shared_word_vectors = ray.put(self.word_vectors)
         obj_refs = parallel.split_task(
-            data_clustering.chunk_moran, num_cpus,
-            list(range(num_morans)), shared_word_vectors, contiguity)
+            data_clustering.chunk_moran, list(range(num_morans)),
+            shared_word_vectors, contiguity, num_cpus=num_cpus)
         res = ray.get(obj_refs)
         moran_dict = res[0]
         for m_dict in res[1:]:
