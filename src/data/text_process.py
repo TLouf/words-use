@@ -79,9 +79,11 @@ def clean(tweets_df, text_col='text', acc_th=0.9, min_nr_words=4, min_nr_cjk=4,
     (tweets_lang_df.loc[long_enough, 'cld_lang'],
      tweets_lang_df.loc[long_enough, 'proba']) = zip(
          *tweets_lang_df.loc[long_enough, 'filtered_text'].apply(make_predict))
-    acc_mask = tweets_lang_df['proba'] >= acc_th
-    lang_mask = tweets_lang_df['cld_lang'] == lang
-    return tweets_lang_df.loc[acc_mask & lang_mask].drop(columns=['source'])
+    mask = tweets_lang_df['proba'] >= acc_th
+    if lang is not None:
+        lang_mask = tweets_lang_df['cld_lang'] == lang
+        mask = mask & lang_mask
+    return tweets_lang_df.loc[mask].drop(columns=['source'])
 
 
 def make_predict(text, cld=DEFAULT_CLD, langs_agg_dict=None):
