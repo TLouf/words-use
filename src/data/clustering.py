@@ -631,13 +631,13 @@ class Decomposition:
     decomposition: PCA
     proj_vectors: np.ndarray
     word_mask: np.ndarray
-    nr_comps: int = 0
+    n_components: int = 0
     clusterings: List[Union[Clustering, HierarchicalClustering]] = field(
         default_factory=list
     )
 
     def __post_init__(self):
-        self.nr_comps = self.proj_vectors.shape[1]
+        self.n_components = self.proj_vectors.shape[1]
         # To save memory:
         self.word_counts_vectors = self.word_counts_vectors[[0],[0]].copy()
         self.word_vectors = self.word_vectors[[0],[0]].copy()
