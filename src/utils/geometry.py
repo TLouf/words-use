@@ -185,7 +185,7 @@ def geo_from_bbox(bbox):
     return geo, area
 
 
-def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
+def make_places_geodf(raw_places_df, raw_shape_df, cc, latlon_proj='epsg:4326',
                       xy_proj='epsg:3857'):
     '''
     Constructs a GeoDataFrame with all the places in `raw_places_df` which have
@@ -197,11 +197,13 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
     places_df = (raw_places_df.rename(columns={'bounding_box': 'bbox'})
                               .dropna(subset=['bbox'])
                               .copy())
+    shape_df = geopd.GeoDataFrame(geometry=[raw_shape_df.unary_union],
+                                  crs=raw_shape_df.crs)
     places_df['bbox'] = places_df['bbox'].apply(
         lambda bbox: bbox['coordinates'][0])
     shape_in_latlon = shape_df[['geometry']].to_crs(latlon_proj)
     shape_min_lon, shape_min_lat, shape_max_lon, shape_max_lat = (
-        shape_in_latlon['geometry'].iloc[0].bounds)
+        shape_in_latlon['geometry'].total_bounds)
     # We will first filter out places which are outside of or bigger than
     # the shape we're considering. This may seem redundant with what
     # follows, but this part is much faster to run, and allows the following
@@ -260,7 +262,7 @@ def make_places_geodf(raw_places_df, shape_df, latlon_proj='epsg:4326',
     places_geodf = places_geodf.drop(
         columns=['bbox', 'id', 'index_shape'])
     places_geodf.index.name = 'place_id'
-    places_geodf.cc = shape_df.cc
+    places_geodf.cc = cc
     return places_geodf
 
 
