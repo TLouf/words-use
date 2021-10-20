@@ -56,7 +56,8 @@ def create_grid(shape_df, cell_size, cc, xy_proj='epsg:3857', intersect=False,
     the grid, in meters.
     `intersect` (bool): determines whether the function computes
     `cells_in_shape_df`, the intersection of the created grid with the shape of
-    the area of interest, so that the grid only covers the shape.
+    the area of interest, so that the grid only covers the shape. Index is
+    sorted.
     If `places_geodf` is given, cells are split in 4 when they countain more
     than `max_nr_places` places from this data frame.
     '''
@@ -185,31 +186,14 @@ def geo_from_bbox(bbox):
     return geo, area
 
 
-def make_places_geodf(raw_places_df, raw_shape_df, cc, latlon_proj='epsg:4326',
-                      xy_proj='epsg:3857'):
+def fast_shape_mask(places_df, shape_in_latlon):
+    ''' 
+    Filters out places in the DataFrame `places_df` which are outside of or
+    bigger than the bbox of the shape we're considering. 
     '''
-    Constructs a GeoDataFrame with all the places in `raw_places_df` which have
-    their centroid within `shape_df`, and calculates their area within the shape
-    in squared meters.
-    '''
-    # Very few places have a null bounding box, 2 of them in Canada for
-    # instance, so we get rid of those.
-    places_df = (raw_places_df.rename(columns={'bounding_box': 'bbox'})
-                              .dropna(subset=['bbox'])
-                              .copy())
-    shape_df = geopd.GeoDataFrame(geometry=[raw_shape_df.unary_union],
-                                  crs=raw_shape_df.crs)
-    places_df['bbox'] = places_df['bbox'].apply(
-        lambda bbox: bbox['coordinates'][0])
-    shape_in_latlon = shape_df[['geometry']].to_crs(latlon_proj)
     shape_min_lon, shape_min_lat, shape_max_lon, shape_max_lat = (
         shape_in_latlon['geometry'].total_bounds)
-    # We will first filter out places which are outside of or bigger than
-    # the shape we're considering. This may seem redundant with what
-    # follows, but this part is much faster to run, and allows the following
-    # operations to run much faster, as the size of `places_df` can be
-    # greatly reduced (for instance when considering a state of the US,
-    # which has more than a million entries in `places_df`).
+    
     places_df['min_lon'] = places_df['bbox'].apply(lambda x: x[0][0])
     places_df['min_lat'] = places_df['bbox'].apply(lambda x: x[0][1])
     places_df['max_lon'] = places_df['bbox'].apply(lambda x: x[2][0])
@@ -219,23 +203,60 @@ def make_places_geodf(raw_places_df, raw_shape_df, cc, latlon_proj='epsg:4326',
                             & (places_df['min_lat'] <= shape_max_lat)
                             & (places_df['min_lat'] >= shape_min_lat))
     is_top_right_in_shape = ((places_df['max_lon'] <= shape_max_lon)
-                             & (places_df['max_lon'] >= shape_min_lon)
-                             & (places_df['max_lat'] <= shape_max_lat)
-                             & (places_df['max_lat'] >= shape_min_lat))
+                            & (places_df['max_lon'] >= shape_min_lon)
+                            & (places_df['max_lat'] <= shape_max_lat)
+                            & (places_df['max_lat'] >= shape_min_lat))
     # Add this mask to keep country when there are no other used bbox places,
     # for small countries where we keep a single cell we need to keep it, and
     # for larger countries it will be discarded with the `max_place_area` filter
     # anyway.
     is_country = places_df['place_type'] == 'country'
     shape_mask = is_bot_left_in_shape | is_top_right_in_shape | is_country
-    places_df = places_df.loc[shape_mask]
-    # The area obtained here is in degree**2 and thus doesn't mean much, we just
-    # get it at this point to differentiate points from polygons.
-    places_df['geometry'], places_df['area'] = [
-        pd.Series(x, index=places_df.index)
-        for x in zip(*places_df['bbox'].apply(geo_from_bbox))]
-    places_geodf = geopd.GeoDataFrame(
-        places_df, crs=latlon_proj, geometry=places_df['geometry'])
+    return shape_mask
+
+
+def make_places_geodf(raw_places_df, raw_shape_df, cc, latlon_proj='epsg:4326',
+                      xy_proj='epsg:3857'):
+    '''
+    Constructs a GeoDataFrame with all the places in `raw_places_df` which have
+    their centroid within `shape_df`, and calculates their area within the shape
+    in squared meters.
+    '''
+    shape_df = geopd.GeoDataFrame(geometry=[raw_shape_df.unary_union],
+                                  crs=raw_shape_df.crs)
+    shape_in_latlon = shape_df[['geometry']].to_crs(latlon_proj)
+
+    if isinstance(raw_places_df, geopd.GeoDataFrame):
+        places_geodf = raw_places_df.copy()
+        places_geodf['area'] = places_geodf.geometry.area
+        
+    elif isinstance(raw_places_df, pd.DataFrame):
+        # Very few places have a null bounding box, 2 of them in Canada for
+        # instance, so we get rid of those.
+        places_df = (raw_places_df.rename(columns={'bounding_box': 'bbox'})
+                                  .dropna(subset=['bbox'])
+                                  .copy())
+        places_df['bbox'] = places_df['bbox'].apply(
+            lambda bbox: bbox['coordinates'][0])
+
+        # Doing the following may seem redundant with what follows, but this
+        # part is much faster to run, and allows the following operations to run
+        # much faster, as the size of `places_df` can be greatly reduced (for
+        # instance when considering a state of the US, which has more than a
+        # million entries in `places_df`).
+        shape_mask = fast_shape_mask(places_df, shape_in_latlon)
+        places_df = places_df.loc[shape_mask]
+        # The area obtained here is in degree**2 and thus doesn't mean much, we just
+        # get it at this point to differentiate points from polygons.
+        places_df['geometry'], places_df['area'] = [
+            pd.Series(x, index=places_df.index)
+            for x in zip(*places_df['bbox'].apply(geo_from_bbox))]
+        places_geodf = geopd.GeoDataFrame(
+            places_df, crs=latlon_proj, geometry=places_df['geometry'])
+
+    else:
+        raise ValueError('Wrong input places')
+
     places_geodf = places_geodf.set_index('id', drop=False)
     # We then get the places' centroids to check that they are within our area
     # (useful when we're only interested in the region of a country).
@@ -255,12 +276,15 @@ def make_places_geodf(raw_places_df, raw_shape_df, cc, latlon_proj='epsg:4326',
     poly_mask = places_geodf['area'] > 0
     if places_geodf.loc[poly_mask].shape[0] > 0:
         polygons_in_shape = geopd.overlay(
-            shape_df[['geometry']], places_geodf.loc[poly_mask],
-            how='intersection')
+            shape_df[['geometry']],
+            places_geodf.loc[poly_mask],
+            how='intersection'
+        )
         polygons_in_shape = polygons_in_shape.set_index('id')
         places_geodf.loc[poly_mask, 'area'] = polygons_in_shape.area
     places_geodf = places_geodf.drop(
-        columns=['bbox', 'id', 'index_shape'])
+        columns=['bbox', 'id', 'index_shape'], errors='ignore'
+    )
     places_geodf.index.name = 'place_id'
     places_geodf.cc = cc
     return places_geodf
