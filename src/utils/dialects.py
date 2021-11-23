@@ -457,7 +457,7 @@ class Language:
         decomp = self.decompositions[i_decompo]
         clustering = decomp.clusterings[i_clust]
         levels = getattr(clustering, 'levels', [clustering])
-        cluster_labels = levels[i_lvl].data['labels']
+        cluster_labels = levels[i_lvl].labels
         unique_cluster_labels = np.unique(cluster_labels)
         is_regional = self.global_counts['is_regional']
         clust_words = self.global_counts.loc[is_regional].copy()
