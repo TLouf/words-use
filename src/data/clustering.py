@@ -682,9 +682,11 @@ class Decomposition:
         return net_file_path
 
 
-    def explained_var_plot(self):
+    def explained_var_plot(self, n_components=None):
+        if n_components is None:
+            n_components = self.decomposition.n_components
         fig, ax = plt.subplots(1)
-        explained_var_ratio = self.decomposition.explained_variance_ratio_
+        explained_var_ratio = self.decomposition.explained_variance_ratio_[:n_components]
         x_plot = np.arange(0, len(explained_var_ratio) + 1)
         y_plot = np.concatenate([((0,)), explained_var_ratio.cumsum()])
         ax.plot(x_plot, y_plot, marker='o')
