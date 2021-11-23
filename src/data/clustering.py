@@ -246,11 +246,11 @@ class Clustering:
 
     def init_labels(self):
         labels = pd.Series(self.cell_dict, name='labels')
-        self.nr_clusters = labels.apply(np.max).max() + 1
         labels = (
             labels.apply(lambda x: '+'.join([str(c+1) for c in x])))
         homeless_mask = labels == '0'
         labels.loc[homeless_mask] = 'homeless'
+        self.nr_clusters = labels.nunique()
         self.prop_homeless = homeless_mask.sum() / homeless_mask.shape[0]
         self.labels = labels
 
