@@ -558,7 +558,7 @@ class Language:
         return fig, axes
 
 
-    def map_comp_loading(self, i_decompo=-1, comps=None, cmap='bwr',
+    def map_comp(self, i_decompo=-1, comps=None, cmap='bwr',
                          total_width=178, total_height=None, save_path_fmt='',
                          **plot_kwargs):
         normed_bboxes, (total_width, total_height) = self.get_maps_pos(
@@ -568,13 +568,14 @@ class Language:
         if comps is None:
             comps = range(proj_vectors.shape[1])
         for i in comps:
-            cbar_label = f'Loading of component {i}'
+            cbar_label = f'Component {i+1}'
             z_plot = proj_vectors[:, i]
             save_path = Path(str(save_path_fmt).format(
-                component=i,
-                **asdict(decomp),
+                **self.to_dict(),
                 **decomp.word_counts_vectors.to_dict(),
                 **decomp.word_vectors.to_dict(),
+                component=i+1,
+                **asdict(decomp),
             ))
             _, _ = self.map_continuous_choro(
                 z_plot, normed_bboxes=normed_bboxes, total_width=total_width,
