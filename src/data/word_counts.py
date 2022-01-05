@@ -10,8 +10,10 @@ import geopandas as geopd
 from shapely.geometry import Point
 import libpysal
 from esda.getisord import G_Local
+import ray
 import src.data.text_process as text_process
 import src.utils.smooth as smooth
+import src.utils.parallel as parallel
 
 
 class My_G_local(G_Local):
@@ -35,7 +37,7 @@ class My_G_local(G_Local):
         self.calc()
         self.p_norm = 1 - scipy.stats.norm.cdf(np.abs(self.Zs))
         if permutations:
-            self.__crand(keep_simulations)
+            self._G_Local__crand(keep_simulations)
             if keep_simulations:
                 self.sim = sim = self.rGs.T
                 self.EG_sim = sim.mean(axis=0)
@@ -44,7 +46,25 @@ class My_G_local(G_Local):
                 self.z_sim = (self.Gs - self.EG_sim) / self.seG_sim
                 self.p_z_sim = 1 - scipy.stats.norm.cdf(np.abs(self.z_sim))
 
+def calc_G_vectors(word_props_vecs, w):
+    word_Zs_vecs = np.zeros_like(word_props_vecs)
+    for word_idx, vec in enumerate(word_props_vecs):
+        lg_star = My_G_local(vec, w, transform='R', star=True, permutations=0)
+        word_Zs_vecs[word_idx] = lg_star.Zs
+    return word_Zs_vecs
 
+def calc_G(word_props_vecs, w, permutations=999):
+    # word_Zs_vecs = np.zeros_like(word_props_vecs)
+    attrs = ['p_sim', 'z_sim', 'p_norm', 'Zs']
+    lg_star_dict = {key: [] for key in attrs}
+    for word_idx, vec in enumerate(word_props_vecs):
+        lg_star = My_G_local(vec, w, transform='R', star=True, permutations=permutations)
+        for key in attrs:
+            lg_star_dict[key].append(getattr(lg_star, key))
+        # lg_star_list.append(lg_star.p_sim, lg_star.z_sim, lg_star.p_norm, lg_star.Zs)
+        # word_Zs_vecs[word_idx] = lg_star.Zs
+        # p_values[word_idx] = lg_star
+    return lg_star_dict
 
 
 def get_cell_of_pt_tweets(
@@ -401,11 +421,8 @@ def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='',
                         / (word_vectors + reg_distrib))
 
     elif word_vec_var == 'Gi_star':
-        for idx_word in range(word_vectors.shape[1]):
-            print(idx_word, end='\r')
-            y = word_vectors[:, idx_word]
-            lg_star = My_G_local(y, w, transform='R', star=True, permutations=0)
-            word_vectors[:, idx_word] = lg_star.Zs
+        refs = parallel.split_task(calc_G_vectors, word_vectors.T, w)
+        word_vectors = np.concatenate(ray.get(refs), axis=0).T
 
     elif word_vec_var == 'z_score':
         reg_distrib = (reg_counts['count'] / global_sum).values
