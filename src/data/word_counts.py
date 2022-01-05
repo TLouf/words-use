@@ -45,58 +45,94 @@ class My_G_local(G_Local):
                 self.p_z_sim = 1 - scipy.stats.norm.cdf(np.abs(self.z_sim))
 
 
-def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
-                         lang, latlon_proj='epsg:4326'):
-    '''
-    Get the word counts by cell from the tweets in `tweets_df`.
-    '''
-    is_poi = places_geodf['area'] == 0
-    # Start with points
-    has_gps = tweets_df['coordinates'].notnull()
-    place_is_poi = tweets_df['place_id'].isin(is_poi.loc[is_poi].index)
-    is_point = has_gps | place_is_poi
-    tweets_pts_df = tweets_df.loc[is_point].copy()
+
+
+def get_cell_of_pt_tweets(
+    tweets_pts_df, cells_geodf, poi_places_geodf, latlon_proj='epsg:4326'
+):
+    if tweets_pts_df.shape[0] > 0:
+        pt_is_gps = tweets_pts_df['pt_is_gps']
     tweets_pts_df['geometry'] = None
-    pt_is_gps = has_gps.loc[is_point]
     # Tweets with POI place:
     pois_cells = geopd.sjoin(
-        places_geodf.loc[is_poi], cells_geodf,
-        op='within', rsuffix='cell', how='inner')
+            poi_places_geodf, cells_geodf,
+            predicate='within', rsuffix='cell', how='inner')
     tweets_pts_df.loc[~pt_is_gps, 'cell_id'] = (
         tweets_pts_df.loc[~pt_is_gps]
                      .join(pois_cells['cell_id'],
                            on='place_id', how='inner')['cell_id'])
     # Tweets with GPS coordinates:
-    tweets_pts_df.loc[pt_is_gps, 'geometry'] = (
-        tweets_pts_df.loc[pt_is_gps, 'coordinates']
-                     .apply(lambda x: Point(x['coordinates'])))
-    tweets_gps_geo = geopd.GeoDataFrame(
-        tweets_pts_df.loc[pt_is_gps, 'geometry'], crs=latlon_proj)
-    tweets_gps_geo = tweets_gps_geo.to_crs(places_geodf.crs)
+        sample_coord = tweets_pts_df.loc[pt_is_gps, 'coordinates'].iloc[0]
+        if isinstance(sample_coord, list):
+            make_pt_fun = Point
+        elif isinstance(sample_coord, dict) and 'coordinates' in sample_coord:
+            make_pt_fun = lambda x: Point(x['coordinates'])
+        else:
+            raise ValueError('Wrong coordinates column')
+
+        pt_geoms = tweets_pts_df.loc[pt_is_gps, 'coordinates'].apply(make_pt_fun)
+        tweets_gps_geo = geopd.GeoDataFrame(geometry=pt_geoms, crs=latlon_proj)
+        tweets_gps_geo = tweets_gps_geo.to_crs(cells_geodf.crs)
     tweets_gps_cells = geopd.sjoin(
         tweets_gps_geo, cells_geodf[['geometry']],
-        op='within', rsuffix='cell', how='inner')['index_cell']
+            predicate='within', rsuffix='cell', how='inner'
+        )['index_cell']
     tweets_pts_df.loc[pt_is_gps, 'cell_id'] = tweets_gps_cells
+    else:
+        cols = tweets_pts_df.columns.tolist() + ['geometry', 'cell_id']
+        tweets_pts_df = pd.DataFrame(columns=cols)
+    return tweets_pts_df
 
+
+def separate_pts_from_bboxes(tweets_df, cells_geodf, places_geodf, latlon_proj='epsg:4326'):
+    is_poi = places_geodf['area'] == 0
+    has_gps = tweets_df['coordinates'].notnull()
+    place_is_poi = tweets_df['place_id'].isin(is_poi.loc[is_poi].index)
+    is_point = has_gps | place_is_poi
+
+    tweets_bbox_df = tweets_df.loc[~is_point].copy()
+    
+    tweets_pts_df = tweets_df.loc[is_point].copy()
+    tweets_pts_df['pt_is_gps'] = has_gps.loc[is_point]
+    tweets_pts_df = get_cell_of_pt_tweets(
+        tweets_pts_df, cells_geodf, places_geodf.loc[is_poi], latlon_proj=latlon_proj
+    )
     tweets_pts_df = tweets_pts_df.loc[tweets_pts_df['cell_id'].notnull()]
+    return tweets_bbox_df, tweets_pts_df
+
+
+def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
+                         lang, latlon_proj='epsg:4326', lower_all=False):
+    '''
+    Get the word counts by cell from the tweets in `tweets_df`. `lower_all` to
+    get faster execution, at the cost of being able to distinguish proper nouns
+    later on.
+    '''
+    #word_patt = re.compile(r"\b(?P<word>[a-zA-Z\u00C0-\u00FF]+)\b")
+    word_patt = re.compile(r"\b[a-zA-Z\u00C0-\u00FF]+\b")
+    tweets_bbox_df, tweets_pts_df = separate_pts_from_bboxes(
+        tweets_df, cells_geodf, places_geodf, latlon_proj=latlon_proj
+    )
+    # Start with points
     tweets_pts_df = text_process.clean(tweets_pts_df, lang=lang)
-    #patt = re.compile(r"\b(?P<word>[a-zA-Z\u00C0-\u00FF]+)\b")
-    patt = re.compile(r"\b[a-zA-Z\u00C0-\u00FF]+\b")
+    tweets_pts_df = tweets_pts_df.set_index('cell_id')['filtered_text']
+    if lower_all:
+        tweets_pts_df = tweets_pts_df.str.lower()
     cell_counts_from_pts = (
-        tweets_pts_df.set_index('cell_id')['filtered_text']
-                     .str.findall(patt)
+        tweets_pts_df.str.findall(word_patt)
                      .explode()
                      .rename('word')
                      .to_frame()
-                     .groupby(['cell_id', 'word'])
+                     .groupby(['word', 'cell_id'])
                      .size()
                      .rename('count'))
-
     # Tweets with bounding box place:
-    tweets_bbox_df = text_process.clean(tweets_df.loc[~is_point], lang=lang)
+    tweets_bbox_df = text_process.clean(tweets_bbox_df, lang=lang)
+    tweets_bbox_df = tweets_bbox_df.set_index('place_id')['filtered_text']
+    if lower_all:
+        tweets_bbox_df = tweets_bbox_df.str.lower()
     places_counts_df = (
-        tweets_bbox_df.set_index('place_id')['filtered_text']
-                      .str.findall(patt)
+        tweets_bbox_df.str.findall(word_patt)
                       .explode()
                       .rename('word')
                       .to_frame()
@@ -105,8 +141,7 @@ def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
                       .rename('count'))
     # Other way to do it, which surprisingly turns out to be slower than the
     # above.
-    # places_counts_df = (tweets_bbox_df.set_index('place_id')['filtered_text']
-    #                                   .str.extractall(patt)
+    # places_counts_df = (tweets_bbox_df.str.extractall(patt)
     #                                   .groupby(['place_id', 'word'])
     #                                   .size()
     #                                   .rename('count'))
