@@ -165,7 +165,8 @@ def get_reg_counts(cell_counts):
     reg_counts_w_case['word_lower'] = reg_counts_w_case.index.str.lower()
     not_lower = reg_counts_w_case.index != reg_counts_w_case['word_lower']
     reg_counts_w_case.loc[not_lower, 'count_upper'] = (
-        reg_counts_w_case.loc[not_lower, 'count'])
+        reg_counts_w_case.loc[not_lower, 'count']
+    )
     # Here we can round and cast to int, because if everything was previously
     # done correctly (and this makes for a nice test), summing over all cells
     # should give an integer, as counts from bbox places should be entirely
@@ -176,18 +177,21 @@ def get_reg_counts(cell_counts):
                          .rename_axis('word')
                          .round()
                          .astype(int)
-                         .sort_values(by='count', ascending=False))
+                         .sort_values(by='count', ascending=False)
+    )
 
     cell_counts['word_lower'] = (
-        cell_counts.index.get_level_values(level='word').str.lower())
+        cell_counts.index.get_level_values(level='word').str.lower()
+    )
     reg_counts['nr_cells'] = (
         cell_counts.groupby(['word_lower', 'cell_id'])['ratio']
                    .max()
                    .groupby('word_lower')
                    .sum()
-                   .rename_axis('word'))
+                   .rename_axis('word')
+    )
     cell_counts = cell_counts.drop(columns=['word_lower'])
-    return reg_counts
+    return reg_counts, cell_counts
 
 
 def agg_by_lower(raw_cell_counts):
