@@ -492,10 +492,12 @@ class Language:
                                      total_height=total_height)
 
 
-    def map_continuous_choro(self, z_plot, normed_bboxes=None, total_width=178,
-                             total_height=None, cmap=None, vmin=None, vmax=None,
-                             vcenter=None, cbar_label=None, save_path=None,
-                             show=True, **plot_kwargs):
+    def map_continuous_choro(
+        self, z_plot, normed_bboxes=None, total_width=178, total_height=None,
+        cmap=None, norm=None, vmin=None, vmax=None, vcenter=None,
+        cbar_label=None, null_color='gray', save_path=None, show=True,
+        **plot_kwargs
+    ):
         if normed_bboxes is None:
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
                 total_width, total_height=total_height, ratio_lgd=1/10)
@@ -508,6 +510,7 @@ class Language:
         cax.set_position(normed_bboxes[-1])
 
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
+        if norm is None:
         if vmin is None:
             vmin = z_plot.min()
         if vmax is None:
@@ -519,10 +522,12 @@ class Language:
 
         for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
             ax.set_position(bbox)
+            area_gdf = reg.shape_geodf
+            area_gdf.plot(ax=ax, color=null_color, edgecolor='none', alpha=0.3)
             plot_df = reg.cells_geodf.join(plot_series, how='inner')
             plot_df.plot(column='z', ax=ax, norm=norm, cmap=cmap,
                          **plot_kwargs)
-            reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black',
+            area_gdf.plot(ax=ax, color='none', edgecolor='black',
                                  linewidth=0.5)
             ax.set_axis_off()
 
@@ -532,6 +537,7 @@ class Language:
         if show:
             fig.show()
         if save_path:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(save_path, bbox_inches='tight')
 
         return fig, axes
