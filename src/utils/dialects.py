@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import json
 import pickle
 import inspect
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
-from typing import List, Optional, Union
 import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -28,17 +29,17 @@ class Region:
     readable: str = ''
     xy_proj: str = 'epsg:3857'
     max_place_area: float = 5e9
-    cell_size: Union[float, str] = 50e3
-    shape_bbox: Optional[List[float]] = None
+    cell_size: float | str = 50e3
+    shape_bbox: list[float] | None = None
     shapefile_name: str = 'CNTR_RG_01M_2016_4326.shp'
     shapefile_col: str = 'FID'
-    shape_geodf: Optional[geopd.GeoDataFrame] = None
-    cells_geodf: Optional[geopd.GeoDataFrame] = None
-    cell_counts: Optional[pd.DataFrame] = None
-    region_counts: Optional[pd.DataFrame] = None
-    raw_cell_counts: Optional[pd.DataFrame] = None
-    shapefile_val: Optional[str] = None
-    total_bounds: Optional[np.ndarray] = None
+    shape_geodf: geopd.GeoDataFrame | None = None
+    cells_geodf: geopd.GeoDataFrame | None = None
+    cell_counts: pd.DataFrame | None = None
+    region_counts: pd.DataFrame | None = None
+    raw_cell_counts: pd.DataFrame | None = None
+    shapefile_val: str | None = None
+    total_bounds: np.ndarray | None = None
 
     def __post_init__(self):
         self.shapefile_val = self.shapefile_val or self.cc
@@ -117,8 +118,8 @@ class Region:
 class Language:
     lc: str
     readable: str
-    list_cc: List[str]
-    regions: List[Region]
+    list_cc: list[str]
+    regions: list[Region]
     _paths: paths_utils.ProjectPaths
     all_cntr_shapes: InitVar[geopd.GeoDataFrame]
     year_from: int = 2015
@@ -129,21 +130,17 @@ class Language:
     cell_tokens_th: float = 1e4
     cell_tokens_decade_crit: float = 2.
     cells_geodf: geopd.GeoDataFrame = field(init=False)
-    global_counts: Optional[pd.DataFrame] = None
-    raw_cell_counts: Optional[pd.DataFrame] = None
-    words_prior_mask: Optional[pd.Series] = None
-    cell_counts: Optional[pd.DataFrame] = None
-    relevant_cells: Optional[pd.Index] = None
-    word_counts_vectors: Optional[word_counts.WordCountsVectors] = None
+    global_counts: pd.DataFrame | None = None
+    raw_cell_counts: pd.DataFrame | None = None
+    words_prior_mask: pd.Series | None = None
+    cell_counts: pd.DataFrame | None = None
+    relevant_cells: pd.Index | None = None # necessarily sorted given that it's created from a groupby
+    word_counts_vectors: word_counts.WordCountsVectors | None = None
     word_vec_var: str = ''
-    word_vectors: Optional[word_counts.WordVectors] = None
+    word_vectors: word_counts.WordVectors | None = None
     cdf_th: float = 0.99
-    width_ratios: Optional[np.ndarray] = None
-    decompositions: List[data_clustering.Decomposition] = field(default_factory=list)
-    z_th: float = 10
-    p_th: float = 0.01
-    smoothing_token_th: float = 1e6
-    cell_sums: Optional[np.ndarray] = None
+    width_ratios: np.ndarray | None = None
+    decompositions: list[data_clustering.Decomposition] = field(default_factory=list)
 
     def __post_init__(self, all_cntr_shapes):
         self.list_cc, self.regions = zip(*sorted(

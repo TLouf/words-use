@@ -1,4 +1,5 @@
-from typing import Optional
+from __future__ import annotations
+
 import re
 import numpy as np
 import scipy.stats
@@ -396,12 +397,12 @@ class WordCountsVectors(np.ndarray):
     def __new__(
         cls,
         input_array: np.ndarray,
-        cell_sums: Optional[np.ndarray] = None,
-        token_th: float = None,
-        presence_th: float = None,
-        max_global_rank: float = None,
-        smooth_wdist_fun: Optional[callable] = None,
-        smooth_wdist_fun_kwargs: dict = None,
+        cell_sums: np.ndarray | None = None,
+        token_th: float | None = None,
+        presence_th: float | None = None,
+        max_global_rank: float | None = None,
+        smooth_wdist_fun: callable | None = None,
+        smooth_wdist_fun_kwargs: dict | None = None,
     ):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
@@ -489,16 +490,15 @@ _WORD_VEC_ATTR = [
     'var_th', 'z_th', 'p_th'
 ]
 class WordVectors(np.ndarray):
-
     def __new__(
         cls,
         input_array: np.ndarray,
         word_vec_var: str = '',
-        spatial_weights_class: Optional[libpysal.weights.W] = None,
-        spatial_weights_kwargs: Optional[dict] = None,
-        var_th: Optional[float] = None,
-        z_th: Optional[float] = None,
-        p_th: Optional[float] = None,
+        spatial_weights_class: libpysal.weights.W | None = None,
+        spatial_weights_kwargs: dict | None = None,
+        var_th: float | None = None,
+        z_th: float | None = None,
+        p_th: float | None = None,
     ):
         obj = np.asarray(input_array).view(cls)
         obj.word_vec_var = word_vec_var
