@@ -574,7 +574,7 @@ class Language:
 
     def map_clustering(self, i_decompo=-1, i_clust=-1, total_width=178,
                        total_height=None, cmap=None, show=True,
-                       save_path_fmt=None, **kwargs):
+                       save_path_fmt=None, levels_subset=None, **kwargs):
         # total width in mm
         normed_bboxes, (total_width, total_height) = self.get_maps_pos(
             total_width, total_height=total_height)
@@ -582,7 +582,11 @@ class Language:
         axes_list = []
         decomposition = self.decompositions[i_decompo]
         clustering = decomposition.clusterings[i_clust]
-        for level in getattr(clustering, 'levels', [clustering]):
+        plot_levels = getattr(clustering, 'levels', [clustering])
+        if levels_subset is not None:
+            plot_levels = [plot_levels[lvl] for lvl in levels_subset]
+
+        for level in plot_levels:
             fig, axes = plt.subplots(
                 len(self.list_cc),
                 figsize=(total_width/10/2.54, total_height/10/2.54))
