@@ -5,12 +5,17 @@ JSON object, thus making up a row of data, and in which each key of the JSON
 strings refers to a column. Cannot use Modin or Dask because of gzip
 compression, Parquet data files would be ideal.
 '''
+from __future__ import annotations
 from math import ceil
+import zipfile
 import gzip
+import bz2
+from pathlib import Path
 import logging
 from shapely.geometry import Point, Polygon
 import pandas as pd
 import geopandas as geopd
+import bson
 import querier
 
 LOGGER = logging.getLogger(__name__)
@@ -26,7 +31,7 @@ def yield_tweets_access(file_path, size=1e9):
         # When files are too large, we prefer to directly readlines to
         # avoid seeking as in `read_json_bytes`. This adds overhead but it's
         # worth it when files are large enough.
-        for f in yield_gzip(file_path):
+        for f in yield_archive(file_path):
             while True:
                 lines = f.read(int(size))
                 lines += f.readline()
@@ -63,12 +68,38 @@ def yield_json(file_path, chunk_size=1000, compression='infer'):
         yield raw_df
 
 
-def yield_gzip(file_path):
+def yield_compressed_file(file_path):
     '''
-    Yields a gzip file handler from a remote or local directory.
+    Yields a gzip file handler.
     '''
-    with gzip.open(file_path, 'rb') as unzipped_f:
+    suffix = Path(file_path).suffix
+    if suffix == '.gz':
+        module = gzip
+    elif suffix == '.bz2':
+        module = bz2
+    else:
+        raise NotImplementedError(f'{suffix} not supported')
+    with module.open(file_path, 'rb') as unzipped_f:
         yield unzipped_f
+
+
+def yield_zip(zip_path, file_name):
+    '''
+    Yields a file handler of file `file_name` from the zip at `zip_path`.
+    '''
+    with zipfile.ZipFile(zip_path) as zip_dir:
+        with zip_dir.open(file_name) as unzipped_f:
+            yield unzipped_f
+
+
+def yield_archive(file_path):
+    '''
+    Yields a file handler of a compressed file.
+    '''
+    if isinstance(file_path, tuple):
+        return yield_zip(*file_path)
+    else:
+        return yield_compressed_file(file_path)
 
 
 def read_json_bytes(file_path, chunk_start, chunk_size):
@@ -76,7 +107,7 @@ def read_json_bytes(file_path, chunk_start, chunk_size):
     Reads a DataFrame from the json file in 'file_path', starting at the byte
     'chunk_start' and reading 'chunk_size' bytes.
     '''
-    for f in yield_gzip(file_path):
+    for f in yield_archive(file_path):
         # The following is extremely costly on large files, prefer
         # `read_json_lines` when files are of several GB.
         f.seek(chunk_start)
@@ -114,7 +145,7 @@ def chunkify(file_path, size=5e8):
     read lines of data, the function ensures that the end of the chunk
     'chunk_end' is at the end of a line.
     '''
-    for f in yield_gzip(file_path):
+    for f in yield_archive(file_path):
         chunk_end = f.tell()
         while True:
             chunk_start = chunk_end
@@ -156,6 +187,8 @@ def places_from_mongo(db, filter, add_fields=None):
         places_dict['geometry'] = []
 
         for p in places:
+            if p.get('bounding_box') is None:
+                continue
 
             for f in all_fields:
                 places_dict[f].append(p[f])
@@ -167,24 +200,24 @@ def places_from_mongo(db, filter, add_fields=None):
                 geo = Polygon(bbox)
             places_dict['geometry'].append(geo)
 
-    raw_places_gdf = geopd.GeoDataFrame(places_dict, crs='epsg:4326').set_index('id')
+    raw_places_gdf = geopd.GeoDataFrame(places_dict, crs='epsg:4326').set_index('id', drop=False)
     return raw_places_gdf
 
 
-def tweets_from_mongo(db, filter, colls, add_fields=None):
+def tweets_from_mongo(db, filter, colls, add_cols=None):
     '''
     Return the DataFrame of tweets in the collections `colls` of the database
     `db` matching `filter`.
     '''
-    if add_fields is None:
-        add_fields = {}
-    default_fields = {
-        'text': 'text',
-        'coordinates.coordinates': 'coordinates',
-        'place.id': 'place_id'
+    if add_cols is None:
+        add_cols = {}
+    default_cols = {
+        'text': {'field': 'text', 'dtype': 'string'},
+        'coordinates': {'field': 'coordinates.coordinates', 'dtype': 'object'},
+        'place_id': {'field': 'place.id', 'dtype': 'string'},
     }
-    fields_to_cols = {**default_fields, **add_fields}
-    all_fields = list(fields_to_cols.keys())
+    cols_dict = {**default_cols, **add_cols}
+    all_fields = [d['field'] for d in cols_dict.values()]
 
     with querier.Connection(db) as con:
         tweets = con.extract(
@@ -194,7 +227,7 @@ def tweets_from_mongo(db, filter, colls, add_fields=None):
         )
 
         all_fields = [f.split('.') for f in all_fields]
-        col_names = fields_to_cols.values()
+        col_names = cols_dict.keys()
         tweets_dict = {key: [] for key in col_names}
 
         for t in tweets:
@@ -207,41 +240,69 @@ def tweets_from_mongo(db, filter, colls, add_fields=None):
 
                 tweets_dict[col].append(value)
 
-    tweets_df = pd.DataFrame(tweets_dict).astype({'text': 'string', 'place_id': 'string'})
+    dtypes = {col: d.get('dtype') for col, d in cols_dict.items()}
+    tweets_df = pd.DataFrame(tweets_dict).astype(dtypes)
     return tweets_df
 
 
-def geo_within_filter(minx, miny, maxx, maxy):
+def geo_within_bbox_filter(minx, miny, maxx, maxy):
     '''
     From bounds defining a bounding box, return a Mongo filter of geometries
     within this bounding box.
     '''
+    return geo_within_filter([
+        [minx, miny],
+        [minx, maxy],
+        [maxx, maxy],
+        [maxx, miny],
+        [minx, miny]
+    ])
+
+def geo_within_filter(polygon_coords):
+    '''
+    From a list of coordinates defining a polygon `polygon_coords`, return a
+    Mongo filter of geometries within this polygon.
+    '''
+    # Close the polygon if not done
+    if polygon_coords[0] != polygon_coords[-1]:
+        polygon_coords.append(polygon_coords[0])
     return {
         '$geoWithin': {
             '$geometry': {
-                'coordinates': [[
-                    [minx, miny],
-                    [minx, maxy],
-                    [maxx, maxy],
-                    [maxx, miny],
-                    [minx, miny]
-                ]],
+                'coordinates': [polygon_coords],
                 'type': 'Polygon'
             }
         }
     }
 
 
+def normalize_object_id_pair(min_id: int | str | bson.ObjectId, max_id: int | str | bson.ObjectId):
+    '''
+    Some IDs in the MongoDB may be integers with fewer than 24 digits, and thus
+    may not be compared correctly to ObjectId-compliant str IDs of 24
+    characters. Hence this function to cast these to strings left padded with
+    zeros if need be.
+    '''
+    if type(min_id) != type(max_id):
+        min_id = str(min_id).zfill(24)
+        max_id = str(max_id).zfill(24)
+    return min_id, max_id
+
+
 def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
     '''
     Returns a list of filters of ID ranges that split the elements of collection
     `coll` of MongoDB database `db` matching `filter` into chunks of size
-    `chunnksize`. From (as I'm writing, not-yet-released) dask-mongo.
+    `chunksize`. From (as I'm writing, not-yet-released) dask-mongo.
     '''
     match = filter._query
     with querier.Connection(db) as con:
         nrows = con.count_entries(filter, collection=coll)
         npartitions = int(ceil(nrows / chunksize))
+        LOGGER.info(
+            f'{nrows:.3e} tweets matching the filter in collection {coll} of '
+            f'DB {db}, dividing in {npartitions} chunks...'
+        )
         partitions_ids = list(
             con._db[coll].aggregate(
                 [
@@ -252,14 +313,10 @@ def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
             )
         )
 
-    chunk_filters = [
-        {
-            "_id": {
-                "$gte": partition["_id"]["min"],
-                "$lte" if i == npartitions - 1 else "$lt": partition["_id"]["max"]
-            }
-        }
-        for i, partition in enumerate(partitions_ids)
-    ]
-    
+    chunk_filters = []
+    for i, partition in enumerate(partitions_ids):
+        lt_key = "$lte" if i == npartitions - 1 else "$lt"
+        min_id, max_id = normalize_object_id_pair(partition["_id"]["min"], partition["_id"]["max"])
+        chunk_filters.append({"_id": {"$gte": min_id, lt_key: max_id}})
+
     return chunk_filters

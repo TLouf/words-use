@@ -1,6 +1,7 @@
 {
     "US": {
         "readable": "the USA",
+        "mongo_coll": "northern_america",
         "xy_proj": "ESRI:102005",
         "local_langs": ["en"],
         "timezone": "CET",
@@ -10,6 +11,7 @@
         },
 	"CA": {
         "readable": "Canada",
+        "mongo_coll": "northern_america",
         "xy_proj": "EPSG:3978",
         "local_langs": ["en", "fr"],
         "shape_bbox": [-133, 41, -52, 55.5],
@@ -37,6 +39,7 @@
         },
     "GB": {
         "readable": "Great Britain",
+        "mongo_coll": "great_britain",
         "xy_proj": "EPSG:27700",
         "local_langs": ["en"],
         "timezone": "Europe/London",
@@ -83,6 +86,7 @@
         },
     "ZA": {
         "readable": "South Africa",
+        "mongo_coll": "sub_saharan_africa",
         "xy_proj": "EPSG:32734",
         "local_langs": ["en", "af", "zu", "xh"],
         "timezone": "Africa/Johannesburg",
@@ -96,8 +100,24 @@
         "max_place_area": 2.5e10,
         "cell_size": 75e3
         },
+    "PT": {
+        "readable": "Portugal",
+        "mongo_coll": "southern_europe",
+        "xy_proj": "EPSG:3763",
+        "local_langs": ["pt"],
+        "max_place_area": 5e9
+        },
+    "BR": {
+        "readable": "Brazil",
+        "mongo_coll": "brasil",
+        "xy_proj": "EPSG:5641",
+        "local_langs": ["pt"],
+        "max_place_area": 5e9,
+        "cell_size": 50e3
+        },
     "AO": {
         "readable": "Angola",
+        "mongo_coll": "sub_saharan_africa",
         "xy_proj": "EPSG:9159",
         "local_langs": ["pt"],
         "max_place_area": 5e9
@@ -122,6 +142,7 @@
         },
     "DZ": {
         "readable": "Algeria",
+        "mongo_coll": "northern_africa",
         "xy_proj": "EPSG:30729",
         "local_langs": ["ar", "fr"],
         "timezone": "Africa/Algiers",
@@ -129,6 +150,7 @@
         },
     "MA": {
         "readable": "Morocco",
+        "mongo_coll": "northern_africa",
         "xy_proj": "EPSG:26191",
         "local_langs": ["ar", "fr"],
         "timezone": "Africa/Casablanca",
@@ -143,18 +165,21 @@
         },
     "IL": {
         "readable": "Israel",
+        "mongo_coll": "western_asia",
         "xy_proj": "EPSG:2039",
         "local_langs": ["iw", "ar", "en", "fr", "ru"],
         "timezone": "Asia/Jerusalem"
         },
     "LB": {
         "readable": "Lebanon",
+        "mongo_coll": "western_asia",
         "xy_proj": "EPSG:22780",
         "local_langs": ["ar", "fr"],
         "timezone": "Asia/Beirut"
         },
     "LU": {
         "readable": "Luxembourg",
+        "mongo_coll": "western_europe",
         "xy_proj": "EPSG:2169",
         "local_langs": ["fr", "de", "lb"],
         "timezone": "Europe/Luxembourg"
@@ -172,8 +197,17 @@
         "local_langs": ["es", "pt"],
         "timezone": "America/Montevideo"
         },
+    "AR": {
+        "readable": "Argentina",
+        "mongo_coll": "argentina",
+        "xy_proj": "EPSG:5343",
+        "local_langs": ["es"],
+        "timezone": "America/Argentina/Buenos_Aires",
+        "cell_size": 75e3
+        },
     "MY": {
         "readable": "Malaysia",
+        "mongo_coll": "south_eastern_asia",
         "xy_proj": "EPSG:23834",
         "local_langs": ["ms", "en", "zh"],
         "timezone": "MST",
@@ -181,6 +215,7 @@
         },
     "ID": {
         "readable": "Indonesia",
+        "mongo_coll": "indonesia",
         "xy_proj": "EPSG:3001",
         "local_langs": ["id", "ms", "jw", "su"],
         "timezone": "Asia/Jakarta",
@@ -189,6 +224,7 @@
         },
     "ES": {
         "readable": "Spain",
+        "mongo_coll": "spain",
         "xy_proj": "EPSG:2062",
         "local_langs": ["es", "ca"],
         "timezone": "CET",
@@ -251,6 +287,7 @@
         },
     "FR": {
         "readable": "France",
+        "mongo_coll": "western_europe",
         "xy_proj": "EPSG:2154",
         "local_langs": ["fr"],
         "timezone": "Europe/Paris", 
@@ -258,12 +295,14 @@
         },
     "CH": {
         "readable": "Switzerland",
+        "mongo_coll": "western_europe",
         "xy_proj": "EPSG:21781",
         "local_langs": ["de", "fr", "it"],
         "timezone": "CET"
         },
     "BE": {
         "readable": "Belgium",
+        "mongo_coll": "western_europe",
         "xy_proj": "EPSG:3812",
         "local_langs": ["fr", "nl"],
         "timezone": "CET"

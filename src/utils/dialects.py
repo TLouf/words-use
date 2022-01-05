@@ -24,6 +24,7 @@ import src.data.clustering as data_clustering
 class Region:
     cc: str
     lc: str
+    mongo_coll: str = ''
     year_from: int = 2015
     year_to: int = 2021
     readable: str = ''
