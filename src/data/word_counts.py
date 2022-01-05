@@ -309,8 +309,6 @@ def filter_part_multidx(cell_counts, masks):
     filtered_counts = cell_counts.copy()
     for m in masks:
         m_series = m.loc[m].rename('col_to_remove')
-        # If nothing to filter out, don't bother joining
-        if m_series.shape[0] < m.shape[0]:
             filtered_counts = filtered_counts.join(m_series, how='inner')[cols]
     return filtered_counts
 
@@ -575,13 +573,15 @@ class WordVectors(np.ndarray):
 
 
     @classmethod
-    def from_lang(cls, lang, **init_kwargs):
+    def from_lang(cls, lang, mask_col='tail_mask', **init_kwargs):
         word_counts_vectors = lang.word_counts_vectors
-        tail_mask = lang.global_counts['tail_mask']
+        tail_mask = lang.global_counts[mask_col]
 
-        kwargs = {'word_vec_var': init_kwargs.get('word_vec_var'),
+        kwargs = {
+            'word_vec_var': init_kwargs.get('word_vec_var'),
                   'cell_sums': word_counts_vectors.cell_sums,
-                  'global_sum': lang.global_counts['count'].sum()}
+            'global_sum': lang.global_counts['count'].sum()
+        }
 
         if kwargs['word_vec_var'] == 'Gi_star':
             kwargs['w'] = init_kwargs['spatial_weights_class'].from_dataframe(
