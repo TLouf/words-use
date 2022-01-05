@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import pickle
 import inspect
@@ -102,9 +103,37 @@ class Region:
         if hasattr(self, df_name):
             if getattr(self, df_name) is None:
                 reg_dict = self.to_dict()
-                parquet_file = str(files_fmt).format(kind=df_name, **reg_dict)
-                setattr(self, df_name, pd.read_parquet(parquet_file))
+                parquet_file = Path(str(files_fmt).format(kind=df_name, **reg_dict))
+                if parquet_file.exists():
+                    res = pd.read_parquet(parquet_file)
+                else:
+                    dfs_to_concat = []
+                    reg_dict['year_from'] = '{year_from}'
+                    reg_dict['year_to'] = '{year_to}'
+                    year_patt = Path(
+                        str(files_fmt)
+                         .format(kind=df_name, **reg_dict)
+                         .replace('{year_from}', '([0-9]{4})')
+                         .replace('{year_to}', '([0-9]{4})')
+                         .replace('.', '\.')
+                    )
+
+                    for f in year_patt.parent.iterdir():
+                        match = re.search(str(year_patt), str(f))
+                        if match is not None:
+                            years = [int(y) for y in match.groups()]
+                            # Assumes no overlap
+                            if years[0] >= self.year_from and years[1] <= self.year_to:
+                                dfs_to_concat.append(pd.read_parquet(f))
+
+                    res = dfs_to_concat[0]
+                    for df in dfs_to_concat[1:]:
+                        res = res.add(df, fill_value=0)
+
+                setattr(self, df_name, res)
+
             return getattr(self, df_name)
+
         else:
             print(f'{df_name} is not a valid name')
 

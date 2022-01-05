@@ -62,6 +62,9 @@ class ProjectPaths:
     cluster_fig_fname_fmt: str = (
         'clusters_method={method_repr}{kwargs_str}_word_vec_var={word_vec_var}'
         '_decomposition={decomposition}.pdf')
+    decomp_fig_fname_fmt: str = (
+        'decomp_word_vec_var={word_vec_var}_component{component}.pdf'
+    )
     net_fname_fmt: str = (
         'net_metric={metric}_transfo={transfo_str}_word_vec_var={word_vec_var}'
         '_decomposition={decomposition}.dat')
@@ -86,13 +89,14 @@ class ProjectPaths:
         self.counts_files_fmt = self.raw_data / self.counts_fname_fmt
         self.shp_file_fmt = self.ext_data / '{0}.shp' / '{0}.shp'
         self.figs = self.proj / 'reports' / 'figures'
-        self.cluster_fig_fmt = (self.figs / '{lc}' / '{cc}' /
-                                self.cluster_fig_fname_fmt)
-        self.net_fmt = (self.processed_data / '{lc}' / '{cc}' /
-                        self.net_fname_fmt)
+        self.case_figs = self.figs / '{lc}' / '{cc}' / '{year_from}-{year_to}'
+        self.cluster_fig_fmt = self.case_figs / self.cluster_fig_fname_fmt
+        self.decomp_fig_fmt = self.case_figs / self.decomp_fig_fname_fmt
+        self.net_fmt = self.processed_data / '{lc}' / '{cc}' / self.net_fname_fmt
 
 
     def partial_format(self, **kwargs):
-        self.cluster_fig_fmt = Path(partial_format(str(self.cluster_fig_fmt),
-                                                   **kwargs))
+        self.case_figs = Path(partial_format(str(self.case_figs), **kwargs))
+        self.cluster_fig_fmt = self.case_figs / self.cluster_fig_fname_fmt
+        self.decomp_fig_fmt = self.case_figs / self.decomp_fig_fname_fmt
         self.net_fmt = Path(partial_format(str(self.net_fmt), **kwargs))
