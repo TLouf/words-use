@@ -163,7 +163,7 @@ def extract_shape(raw_shape_df, cc, bbox=None, latlon_proj='epsg:4326',
             min_area = max_distance**2 / 1000
         # We delete the polygons in the multipolygon which are too small and
         # just complicate the shape needlessly.
-        shape_df.geometry.iloc[0] = MultiPolygon([poly for poly in shapely_geo
+        shape_df.geometry.iloc[0] = MultiPolygon([poly for poly in shapely_geo.geoms
                                                   if poly.area > min_area])
     # We also simplify by a given tolerance (max distance a point can be moved),
     # this could be a parameter in countries.json if needed
@@ -263,7 +263,7 @@ def make_places_geodf(raw_places_df, raw_shape_df, cc, latlon_proj='epsg:4326',
     places_centroids = geopd.GeoDataFrame(
         geometry=places_geodf[['geometry']].centroid, crs=latlon_proj)
     places_in_shape = geopd.sjoin(places_centroids, shape_in_latlon,
-                                  op='within', rsuffix='shape')
+                                  predicate='within', rsuffix='shape')
     places_geodf = places_geodf.join(places_in_shape['index_shape'],
                                      how='inner')
     places_geodf = places_geodf.to_crs(xy_proj)
