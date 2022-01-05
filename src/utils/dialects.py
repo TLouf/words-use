@@ -456,15 +456,16 @@ class Language:
         clustering = decomp.clusterings[i_clust]
         levels = getattr(clustering, 'levels', [clustering])
         cluster_labels = levels[i_lvl].labels
-        unique_cluster_labels = np.unique(cluster_labels)
+        unique_labels = np.unique(cluster_labels)
         is_regional = self.global_counts['is_regional']
         clust_words = self.global_counts.loc[is_regional].copy()
-        list_masks = []
 
-        for lbl in unique_cluster_labels:
+        for lbl in unique_labels:
             cluster_mask = cluster_labels == lbl
-            list_masks.append(cluster_mask)
             clust_center = decomp.proj_vectors[cluster_mask, :].mean(axis=0)
+            # We reproject the cluster's center to word space
+            # use approx inverse_transform (very bad for low variance ratio threshold in
+            # pca) or original word_vectors?
             words_cluster = decomp.decomposition.inverse_transform(clust_center)
             clust_words[f'cluster{lbl}'] = words_cluster
 
@@ -474,11 +475,14 @@ class Language:
                 for col in clust_words.columns
                 if col.startswith('cluster') and col != f'cluster{lbl}'
                 ]
-            # Dist to closest for every word.
-            clust_words[f'dist{lbl}'] = np.min([
+            # Dist to closest cluster for every word.
+            clust_words[f'dist{lbl}'] = np.min(
+                [
                 (clust_words[f'cluster{lbl}'] - clust_words[col]).values**2
                 for col in other_clust_cols
-                ], axis=0)
+                ],
+                axis=0
+            )
         return clust_words
 
 
