@@ -12,11 +12,14 @@ import gzip
 import bz2
 from pathlib import Path
 import logging
-from shapely.geometry import Point, Polygon
+from tqdm import tqdm
 import pandas as pd
 import geopandas as geopd
 import bson
 import querier
+
+import src.utils.geometry as geo_utils
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -167,7 +170,7 @@ def chunkify(file_path, size=5e8):
                 break
 
 
-def places_from_mongo(db, filter, add_fields=None):
+def places_from_mongo(db, filter, add_fields=None, tweets_filter=None, tweets_colls=None):
     '''
     Return the GeoDataFrame of places in database `db` matching `filter`.
     '''
@@ -175,7 +178,20 @@ def places_from_mongo(db, filter, add_fields=None):
         add_fields = []
     default_fields = ['id', 'name', 'place_type', 'bounding_box.coordinates']
     all_fields = default_fields + add_fields
+
     with querier.Connection(db) as con:
+
+        if 'places' not in con.list_available_collections():
+            if tweets_colls is None or tweets_filter is None:
+                raise ValueError(
+                    f'There is no places collection in {db}, specify tweet '
+                    'filters and collections from which to retrieve them.'
+                )
+            return pd.concat([
+                places_from_mongo_tweets(db, coll, tweets_filter, add_fields=add_fields)
+                for coll in tweets_colls
+            ])
+
         places = con.extract(
             filter,
             fields=all_fields,
@@ -194,13 +210,47 @@ def places_from_mongo(db, filter, add_fields=None):
                 places_dict[f].append(p[f])
 
             bbox = p['bounding_box']['coordinates'][0]
-            if bbox[0] == bbox[1]:
-                geo = Point(bbox[0])
-            else:
-                geo = Polygon(bbox)
+            geo, _ = geo_utils.geo_from_bbox(bbox)
             places_dict['geometry'].append(geo)
 
     raw_places_gdf = geopd.GeoDataFrame(places_dict, crs='epsg:4326').set_index('id', drop=False)
+    return raw_places_gdf
+
+
+def places_from_mongo_tweets(db, coll, tweets_filter, add_fields=None):
+    '''
+    When no 'places' collection
+    '''
+    if add_fields is None:
+        add_fields = []
+
+    with querier.Connection(db) as con:
+        grp_dict = {
+            "_id": "$place.id",
+            "name": {"$first": "$place.name"},
+            "type": {"$first": "$place.place_type"},
+            "nr_tweets": {"$sum": 1},
+            "bbox": {"$first": "$place.bounding_box.coordinates"},
+            **{field: {"$first": f"$place.{field}"} for field in add_fields}
+        }
+ 
+        places = con._db[coll].aggregate(
+            [
+                {"$match": tweets_filter._query},
+                {"$group": grp_dict},
+            ],
+        )
+        
+        geodf_dicts = []
+        for p in tqdm(places):
+            p['id'] = p.pop('_id')
+            bbox = p.pop('bbox')[0]
+            p['geometry'], _ = geo_utils.geo_from_bbox(bbox)
+            geodf_dicts.append(p)
+
+    raw_places_gdf = (geopd.GeoDataFrame.from_dict(geodf_dicts)
+                                        .set_index('id', drop=False)
+                                        .set_crs('epsg:4326'))
     return raw_places_gdf
 
 
