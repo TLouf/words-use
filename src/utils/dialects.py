@@ -445,10 +445,13 @@ class Language:
             # be expected from a random partition of the variance into
             # `n_components_`.
             n_components = np.argmin(var_pca > var_broken_stick) - 1
-            new_kwargs = kwargs.copy()
-            new_kwargs['n_components'] = n_components
-            pca = PCA(**new_kwargs).fit(word_vectors)
-
+            pca.n_components_ = n_components
+            pca.components_ = pca.components_[:n_components]
+            pca.explained_variance_ = pca.explained_variance_[:n_components]
+            pca.explained_variance_ratio_ = (
+                pca.explained_variance_ratio_[:n_components]
+            )
+            pca.singular_values_ = pca.singular_values_[:n_components]
         proj_vectors = pca.transform(word_vectors)
         decomposition = data_clustering.Decomposition(
             self.word_counts_vectors, word_vectors, pca, proj_vectors, word_mask,
