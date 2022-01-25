@@ -239,6 +239,7 @@ def places_from_mongo_tweets(db, coll, tweets_filter, add_fields=None):
                 {"$match": tweets_filter._query},
                 {"$group": grp_dict},
             ],
+            allowDiskUse=True,
         )
         
         geodf_dicts = []
@@ -345,7 +346,6 @@ def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
     `coll` of MongoDB database `db` matching `filter` into chunks of size
     `chunksize`. From (as I'm writing, not-yet-released) dask-mongo.
     '''
-    match = filter._query
     with querier.Connection(db) as con:
         nrows = con.count_entries(filter, collection=coll)
         npartitions = int(ceil(nrows / chunksize))
@@ -356,7 +356,7 @@ def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
         partitions_ids = list(
             con._db[coll].aggregate(
                 [
-                    {"$match": match},
+                    {"$match": filter},
                     {"$bucketAuto": {"groupBy": "$_id", "buckets": npartitions}},
                 ],
                 allowDiskUse=True,
