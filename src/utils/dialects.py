@@ -520,57 +520,28 @@ class Language:
 
     def get_maps_pos(self, total_width, total_height=None, ratio_lgd=None):
         width_ratios = self.get_width_ratios(ratio_lgd=ratio_lgd)
-        return map_viz.position_axes(width_ratios, total_width,
-                                     total_height=total_height)
+        return map_viz.position_axes(
+            width_ratios, total_width, total_height=total_height, ratio_lgd=ratio_lgd
+        )
 
 
     def map_continuous_choro(
         self, z_plot, normed_bboxes=None, total_width=178, total_height=None,
-        cmap=None, norm=None, vmin=None, vmax=None, vcenter=None,
-        cbar_label=None, null_color='gray', save_path=None, show=True,
-        **plot_kwargs
+        **choro_kwargs
     ):
         if normed_bboxes is None:
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
-                total_width, total_height=total_height, ratio_lgd=1/10)
+                total_width, total_height=total_height, ratio_lgd=1/10
+            )
 
-        fig, axes = plt.subplots(
-            len(self.list_cc) + 1,
-            figsize=(total_width/10/2.54, total_height/10/2.54))
-        map_axes = axes[:-1]
-        cax = axes[-1]
-        cax.set_position(normed_bboxes[-1])
-
+        figsize = (total_width/10/2.54, total_height/10/2.54)
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
-        if norm is None:
-        if vmin is None:
-            vmin = z_plot.min()
-        if vmax is None:
-            vmax = z_plot.max()
-        if vcenter is None:
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        else:
-            norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
+        fig, axes = map_viz.choropleth(
+            plot_series, self.regions, figsize=figsize, **choro_kwargs
+        )
 
-        for ax, reg, bbox in zip(map_axes, self.regions, normed_bboxes[:-1]):
+        for ax, bbox in zip(axes, normed_bboxes):
             ax.set_position(bbox)
-            area_gdf = reg.shape_geodf
-            area_gdf.plot(ax=ax, color=null_color, edgecolor='none', alpha=0.3)
-            plot_df = reg.cells_geodf.join(plot_series, how='inner')
-            plot_df.plot(column='z', ax=ax, norm=norm, cmap=cmap,
-                         **plot_kwargs)
-            area_gdf.plot(ax=ax, color='none', edgecolor='black',
-                                 linewidth=0.5)
-            ax.set_axis_off()
-
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        _ = fig.colorbar(sm, cax=cax, label=cbar_label)
-
-        if show:
-            fig.show()
-        if save_path:
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.savefig(save_path, bbox_inches='tight')
 
         return fig, axes
 
@@ -594,7 +565,8 @@ class Language:
                          total_width=178, total_height=None, save_path_fmt='',
                          **plot_kwargs):
         normed_bboxes, (total_width, total_height) = self.get_maps_pos(
-            total_width, total_height=total_height, ratio_lgd=1/10)
+            total_width, total_height=total_height, ratio_lgd=1/10
+        )
         decomp = self.decompositions[i_decompo]
         proj_vectors = decomp.proj_vectors
         if comps is None:
@@ -620,7 +592,9 @@ class Language:
                        save_path_fmt=None, levels_subset=None, **kwargs):
         # total width in mm
         normed_bboxes, (total_width, total_height) = self.get_maps_pos(
-            total_width, total_height=total_height)
+            total_width, total_height=total_height
+        )
+        figsize = (total_width/10/2.54, total_height/10/2.54)
         fig_list = []
         axes_list = []
         decomposition = self.decompositions[i_decompo]
@@ -630,35 +604,6 @@ class Language:
             plot_levels = [plot_levels[lvl] for lvl in levels_subset]
 
         for level in plot_levels:
-            fig, axes = plt.subplots(
-                len(self.list_cc),
-                figsize=(total_width/10/2.54, total_height/10/2.54))
-            if len(self.list_cc) == 1:
-                axes = (axes,)
-
-            if cmap is not None:
-                level.attr_color_to_labels(cmap=cmap)
-
-            label_color = level.colors
-            for ax, reg, bbox in zip(axes, self.regions, normed_bboxes):
-                ax.set_position(bbox)
-                cc_geodf = reg.cells_geodf.join(level.labels,
-                                                how='inner')
-                for label, label_geodf in cc_geodf.groupby('labels'):
-                    # Don't put a cmap in kwargs['plot'] because here we use a
-                    # fixed color per cluster.
-                    label_geodf.plot(ax=ax, color=label_color[label],
-                                    **kwargs.get('plot', {}))
-                reg.shape_geodf.plot(ax=ax, color='none', edgecolor='black',
-                                     linewidth=0.5)
-                ax.set_axis_off()
-
-            # The colours will correspond because groupby sorts by the column by
-            # which we group, and we sorted the unique labels.
-            fig = map_viz.colored_pts_legend(fig, label_color,
-                                             **kwargs.get('legend', {}))
-            if show:
-                fig.show()
             if save_path_fmt:
                 fmt_dict = {**self.to_dict(),
                             **asdict(decomposition),
@@ -666,8 +611,15 @@ class Language:
                             **decomposition.word_vectors.to_dict(),
                             **asdict(level)}
                 save_path = Path(str(save_path_fmt).format(**fmt_dict))
-                save_path.parent.mkdir(parents=True, exist_ok=True)
-                fig.savefig(save_path)
+            else:
+                save_path = None
+
+            fig, axes = map_viz.cluster_level(
+                level, self.regions, figsize=figsize, cmap=cmap,
+                save_path=save_path, show=show, **kwargs
+            )
+            for ax, bbox in zip(axes, normed_bboxes):
+                ax.set_position(bbox)
             fig_list.append(fig)
             axes_list.append(axes)
 

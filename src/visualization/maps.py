@@ -1,6 +1,7 @@
 import colorsys
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import matplotlib.lines as mlines
 import pandas as pd
 import rpack
@@ -236,4 +237,89 @@ def joint_cc(geodf, cluster_data, data_dict, cmap=None, show=True,
     cax.set_axis_off()
     if show:
         fig.show()
+    return fig, axes
+
+
+def cluster_level(
+    level, regions, figsize=None, cmap=None,
+    save_path=None, show=True, fig=None, axes=None, **kwargs
+):
+    if axes is None:
+        fig, axes = plt.subplots(len(regions), figsize=figsize)
+        
+    if len(regions) == 1:
+        axes = (axes,)
+
+    if cmap is not None:
+        level.attr_color_to_labels(cmap=cmap)
+
+    label_color = level.colors
+    for ax, reg in zip(axes, regions):
+        cc_geodf = reg.cells_geodf.join(level.labels, how='inner')
+
+        for label, label_geodf in cc_geodf.groupby('labels'):
+            # Don't put a cmap in kwargs['plot'] because here we use a
+            # fixed color per cluster.
+            label_geodf.plot(
+                ax=ax, color=label_color[label], **kwargs.get('plot', {})
+            )
+
+        reg.shape_geodf.plot(
+            ax=ax, color='none', edgecolor='black', linewidth=0.5
+        )
+        ax.set_axis_off()
+
+    # The colours will correspond because groupby sorts by the column by
+    # which we group, and we sorted the unique labels.
+    fig = colored_pts_legend(fig, label_color, **kwargs.get('legend', {}))
+    if show:
+        fig.show()
+    if save_path:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path)
+
+    return fig, axes
+
+
+def choropleth(
+    plot_series, regions, fig=None, axes=None, figsize=None, cmap=None,
+    norm=None, vmin=None, vmax=None, vcenter=None,
+    cbar_label=None, null_color='gray', save_path=None, show=True,
+    **plot_kwargs
+):
+    if axes is None:
+        fig, axes = plt.subplots(len(regions) + 1, figsize=figsize)
+
+    map_axes = axes[:-1]
+    cax = axes[-1]
+
+    if norm is None:
+        if vmin is None:
+            vmin = plot_series.min()
+        if vmax is None:
+            vmax = plot_series.max()
+        if vcenter is None:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        else:
+            norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
+
+    for ax, reg in zip(map_axes, regions):
+        area_gdf = reg.shape_geodf
+        area_gdf.plot(ax=ax, color=null_color, edgecolor='none', alpha=0.3)
+        plot_df = reg.cells_geodf.join(plot_series, how='inner')
+        plot_df.plot(
+            column=plot_series.name, ax=ax, norm=norm, cmap=cmap, **plot_kwargs
+        )
+        area_gdf.plot(ax=ax, color='none', edgecolor='black', linewidth=0.5)
+        ax.set_axis_off()
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    _ = fig.colorbar(sm, cax=cax, label=cbar_label)
+
+    if show:
+        fig.show()
+    if save_path:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, bbox_inches='tight')
+
     return fig, axes
