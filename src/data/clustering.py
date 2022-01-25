@@ -389,38 +389,6 @@ class Clustering:
         return fig, ax
 
 
-def rearrange_levels_x_clust(levels_x_clust):
-    m = levels_x_clust.copy()
-    max_nr_clusters = m.shape[1]
-    list_inv_reorders = []
-
-    for i in range(max_nr_clusters-2, 0, -1):
-        reorder = np.argsort(m[i-1, :])
-        m = m[:, reorder]
-        inv_reorder = np.zeros(max_nr_clusters, dtype=int)
-        inv_reorder[reorder] = np.arange(max_nr_clusters)
-        list_inv_reorders.append(inv_reorder)
-
-    max_mask = (m.T == m[:, -1]).T
-    m[max_mask] = max_nr_clusters
-
-    has_changed_mat = m[1:, :] != m[:-1, :]
-    for i in range(1, max_nr_clusters-1):
-        has_changed = has_changed_mat[i-1]
-        if has_changed.any():
-            prev_row = m[i-1, has_changed]
-            taken_values = np.unique(m[i, ~has_changed])
-            available_values = np.setdiff1d(np.arange(1, max_nr_clusters+1), taken_values)
-            new_value = available_values[np.argmin(np.abs(available_values - prev_row[0]))]
-            m[i, has_changed] = new_value #prev_row + 1 - 2 * int(prev_row[np.argmax(np.abs(prev_row - max_nr_clusters/2))] > max_nr_clusters/2)
-
-    m[-1, :] = np.arange(1, max_nr_clusters+1)
-    for inv_reorder in list_inv_reorders[::-1]:
-        m = m[:, inv_reorder]
-
-    return m
-
-
 @dataclass
 class HierarchicalClustering:
     levels: List[Clustering]
@@ -564,20 +532,35 @@ class HierarchicalClustering:
 
 
     def attr_lvl_colors(self, cmap=None):
-        sorted_levels = sorted(self.levels,
-                               key=lambda x: getattr(x, 'nr_clusters'),
-                               reverse=True)
         og_m = self.get_clusters_agg()
-        mod_m = rearrange_levels_x_clust(og_m)
-        iterator = zip(sorted_levels, og_m[::-1], mod_m[::-1])
-        for i, (l, og_row, mod_row) in enumerate(iterator):
-            mapping = dict(zip(og_row.astype(str), mod_row.astype(str)))
-            l.labels = l.labels.map(mapping)
-            if i == 0:
-                l.attr_color_to_labels(cmap=cmap)
-                colors = l.colors
+        nr_levels = len(self.levels)
+        self.levels[-1].attr_color_to_labels(cmap=cmap)
+        prev_color_dict = self.levels[-1].colors
+
+        for lvl in range(nr_levels-1, 0, -1):
+            before = og_m[lvl]
+            after = og_m[lvl-1]
+            before_labels_dict = {lbl: set() for lbl in after}
+            for albl, blbl in zip(after, before):
+                before_labels_dict[albl].add(blbl)
+            lvl_color_dict = {}
+            list_used_labels = []
+            for label, before_labels in before_labels_dict.items():
+                if len(before_labels) == 1:
+                    before_label = before_labels.pop()
+                    c = prev_color_dict[str(before_label)]
+                    list_used_labels.append(before_label)
+                elif label in before_labels:
+                    c = prev_color_dict[str(label)]
+                    list_used_labels.append(label)
             else:
-                l.colors = {lbl: colors[lbl] for lbl in mapping.values()}
+                    cell_attr = self.levels[lvl].labels
+                    bigger_clust = cell_attr[cell_attr.astype(int).isin(before_labels)].value_counts().idxmax()
+                    c = prev_color_dict[str(bigger_clust)]
+                lvl_color_dict[str(label)] = c
+
+            self.levels[lvl-1].colors = lvl_color_dict
+            prev_color_dict = lvl_color_dict.copy()
 
 
     def plot_dendrogram(self, coloring_lvl=-1, **shc_dendro_kwargs):
