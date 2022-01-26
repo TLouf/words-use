@@ -95,9 +95,34 @@
         },
     "NG": {
         "readable": "Nigeria",
+        "mongo_coll": "sub_saharan_africa",
         "xy_proj": "EPSG:32632",
         "local_langs": ["en"],
         "max_place_area": 2.5e10,
+        "cell_size": 75e3
+        },
+    "GH": {
+        "readable": "Ghana",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:25000",
+        "local_langs": ["en"],
+        "max_place_area": 1e10,
+        "cell_size": 75e3
+        },
+    "KE": {
+        "readable": "Kenya",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:21097",
+        "local_langs": ["en"],
+        "max_place_area": 1e10,
+        "cell_size": 75e3
+        },
+    "UG": {
+        "readable": "Uganda",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:21097",
+        "local_langs": ["en"],
+        "max_place_area": 1e10,
         "cell_size": 75e3
         },
     "PT": {
@@ -112,15 +137,24 @@
         "mongo_coll": "brasil",
         "xy_proj": "EPSG:5641",
         "local_langs": ["pt"],
-        "max_place_area": 5e9,
-        "cell_size": 50e3
+        "max_place_area": 3e10,
+        "cell_size": 75e3
         },
     "AO": {
         "readable": "Angola",
         "mongo_coll": "sub_saharan_africa",
         "xy_proj": "EPSG:9159",
         "local_langs": ["pt"],
-        "max_place_area": 5e9
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "MZ": {
+        "readable": "Mozambique",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:9159",
+        "local_langs": ["pt"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
         },
     "LV": {
         "readable": "Latvia",
@@ -133,6 +167,13 @@
         "xy_proj": "EPSG:3059",
         "local_langs": ["et", "ru"],
         "timezone": "EET"
+        },
+    "FI": {
+        "readable": "Finland",
+        "xy_proj": "EPSG:3067",
+        "local_langs": ["fi", "sv", "ru"],
+        "timezone": "Europe/Helsinki",
+        "max_place_area": 3e10
         },
     "CY": {
         "readable": "Cyprus",
@@ -156,17 +197,38 @@
         "timezone": "Africa/Casablanca",
         "max_place_area": 1e10
         },
-    "FI": {
-        "readable": "Finland",
-        "xy_proj": "EPSG:3067",
-        "local_langs": ["fi", "sv", "ru"],
-        "timezone": "Europe/Helsinki",
-        "max_place_area": 3e10
+    "TN": {
+        "readable": "Tunisia",
+        "mongo_coll": "northern_africa",
+        "xy_proj": "EPSG:30729",
+        "local_langs": ["ar", "fr"],
+        "timezone": "Africa/Tunis",
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "EG": {
+        "readable": "Egypt",
+        "mongo_coll": "northern_africa",
+        "xy_proj": "EPSG:22994",
+        "local_langs": ["ar", "en"],
+        "timezone": "Africa/Cairo",
+        "max_place_area": 2e10,
+        "cell_size": 75e3
+        },
+    "IQ": {
+        "readable": "Iraq",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:22994",
+        "local_langs": ["ar"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
         },
     "IL": {
         "readable": "Israel",
         "mongo_coll": "western_asia",
         "xy_proj": "EPSG:2039",
+        "max_place_area": 1e15,
+        "cell_size": 1e9,
         "local_langs": ["iw", "ar", "en", "fr", "ru"],
         "timezone": "Asia/Jerusalem"
         },
@@ -174,8 +236,74 @@
         "readable": "Lebanon",
         "mongo_coll": "western_asia",
         "xy_proj": "EPSG:22780",
+        "max_place_area": 1e15,
+        "cell_size": 1e9,
         "local_langs": ["ar", "fr"],
         "timezone": "Asia/Beirut"
+        },
+    "JO": {
+        "readable": "Jordan",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2039",
+        "local_langs": ["ar"],
+        "max_place_area": 2e10,
+        "cell_size": 75e3
+        },
+    "SA": {
+        "readable": "Saudi Arabia",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 1e10,
+        "cell_size": 75e3
+        },
+    "AE": {
+        "readable": "United Arab Emirates",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 2e10,
+        "cell_size": 75e3
+        },
+    "QA": {
+        "readable": "Qatar",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 5e9,
+        "cell_size": 75e3
+        },
+    "BH": {
+        "readable": "Bahrain",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 5e9,
+        "cell_size": 75e3
+        },
+    "OM": {
+        "readable": "Oman",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 2e10,
+        "cell_size": 75e3
+        },
+    "YE": {
+        "readable": "Yemen",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "KW": {
+        "readable": "Kuwait",
+        "mongo_coll": "western_asia",
+        "xy_proj": "EPSG:2318",
+        "local_langs": ["ar"],
+        "max_place_area": 5e9,
+        "cell_size": 75e3
         },
     "LU": {
         "readable": "Luxembourg",
@@ -186,16 +314,21 @@
         },
     "PY": {
         "readable": "Paraguay",
+        "mongo_coll": "latin_america_and_the_caribbean",
         "xy_proj": "EPSG:32720",
         "local_langs": ["es", "gn", "pt"],
         "timezone": "America/Asuncion",
-        "max_place_area": 1e10
+        "max_place_area": 5e10,
+        "cell_size": 75e3
         },
     "UY": {
         "readable": "Uruguay",
+        "mongo_coll": "latin_america_and_the_caribbean",
         "xy_proj": "EPSG:5383",
         "local_langs": ["es", "pt"],
-        "timezone": "America/Montevideo"
+        "timezone": "America/Montevideo",
+        "max_place_area": 5e10,
+        "cell_size": 75e3
         },
     "AR": {
         "readable": "Argentina",
@@ -306,5 +439,199 @@
         "xy_proj": "EPSG:3812",
         "local_langs": ["fr", "nl"],
         "timezone": "CET"
+        },
+    "SN": {
+        "readable": "Senegal",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:3414",
+        "max_place_area": 1e15,
+        "cell_size": 1e9,
+        "local_langs": ["fr"],
+        "timezone": "Africa/Dakar"
+        },
+    "CI": {
+        "readable": "Ivory Coast",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:3414",
+        "max_place_area": 1e15,
+        "cell_size": 1e9,
+        "local_langs": ["fr"],
+        "timezone": "Africa/Abidjan"
+        },
+    "CM": {
+        "readable": "Cameroon",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:3119",
+        "max_place_area": 5e11,
+        "cell_size": 75e3,
+        "local_langs": ["fr"],
+        "timezone": "Africa/Douala"
+        },
+    "CD": {
+        "readable": "Democratic Republic of the Congo",
+        "mongo_coll": "sub_saharan_africa",
+        "xy_proj": "EPSG:3119",
+        "max_place_area": 1e15,
+        "cell_size": 1e9,
+        "local_langs": ["fr"],
+        "timezone": "Africa/Kinshasa"
+        },
+    "MX": {
+        "readable": "Mexico",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:6372",
+        "local_langs": ["es"],
+        "timezone": "America/Mexico_City",
+        "max_place_area": 2e10,
+        "cell_size": 75e3
+        },
+    "GT": {
+        "readable": "Guatemala",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:24817",
+        "local_langs": ["es"],
+        "timezone": "America/Guatemala",
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "SV": {
+        "readable": "El Salvador",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:5460",
+        "local_langs": ["es"],
+        "timezone": "America/El_Salvador",
+        "max_place_area": 3e9,
+        "cell_size": 75e3
+        },
+    "HN": {
+        "readable": "Honduras",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:24817",
+        "local_langs": ["es"],
+        "timezone": "America/Tegucigalpa",
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "NI": {
+        "readable": "Nicaragua",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:24817",
+        "local_langs": ["es"],
+        "timezone": "America/Managua",
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "CR": {
+        "readable": "Costa Rica",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:5457",
+        "local_langs": ["es"],
+        "timezone": "America/Costa_Rica",
+        "max_place_area": 2e11,
+        "cell_size": 75e3,
+        "shape_bbox": [-86.2, 7.7, -82, 11.4]
+        },
+    "PA": {
+        "readable": "Panama",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:5457",
+        "local_langs": ["es"],
+        "timezone": "America/Panama",
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "EC": {
+        "readable": "Ecuador",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:24817",
+        "local_langs": ["es"],
+        "timezone": "America/Guayaquil",
+        "max_place_area": 2e10,
+        "cell_size": 75e3,
+        "shape_bbox": [-82.4, -5.5, -75, 1.6]
+        },
+    "CO": {
+        "readable": "Colombia",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:3118",
+        "local_langs": ["es"],
+        "timezone": "America/Bogota",
+        "max_place_area": 1e10,
+        "cell_size": 75e3
+        },
+    "PE": {
+        "readable": "Peru",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:24891",
+        "local_langs": ["es"],
+        "timezone": "America/Lima",
+        "max_place_area": 1e10,
+        "cell_size": 75e3
+        },
+    "CL": {
+        "readable": "Chile",
+        "mongo_coll": "latin_america_and_the_caribbean",
+        "xy_proj": "EPSG:24891",
+        "local_langs": ["es"],
+        "timezone": "America/Santiago",
+        "max_place_area": 1e10,
+        "cell_size": 75e3,
+        "shape_bbox": [-80, -56, -62, -15]
+        },
+    "RU": {
+        "readable": "Russia",
+        "mongo_coll": "eastern_europe",
+        "xy_proj": "EPSG:3576",
+        "local_langs": ["ru"],
+        "max_place_area": 2e10,
+        "cell_size": 100e3
+        },
+    "BY": {
+        "readable": "Belarus",
+        "mongo_coll": "eastern_europe",
+        "xy_proj": "EPSG:2526",
+        "local_langs": ["ru"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "UA": {
+        "readable": "Ukraine",
+        "mongo_coll": "eastern_europe",
+        "xy_proj": "EPSG:2526",
+        "local_langs": ["ru", "uk"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "MN": {
+        "readable": "Mongolia",
+        "mongo_coll": "eastern_asia",
+        "xy_proj": "EPSG:3576",
+        "local_langs": ["ru"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "KZ": {
+        "readable": "Kazakhstan",
+        "mongo_coll": "central_asia",
+        "xy_proj": "EPSG:3576",
+        "local_langs": ["ru"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "KG": {
+        "readable": "Kyrgyzstan",
+        "mongo_coll": "central_asia",
+        "xy_proj": "EPSG:3576",
+        "local_langs": ["ru"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
+        },
+    "UZ": {
+        "readable": "Uzbekistan",
+        "mongo_coll": "central_asia",
+        "xy_proj": "EPSG:3576",
+        "local_langs": ["ru", "uz"],
+        "max_place_area": 1e15,
+        "cell_size": 1e9
         }
 }
