@@ -172,11 +172,15 @@ def position_axes(width_ratios, total_width, total_height=None, ratio_lgd=None):
         to_shift_left = bboxes[same_line, 0] > last_l
         right_margin = total_width - np.max(bboxes[same_line][to_shift_left, 0]
                                             + bboxes[same_line][to_shift_left, 2])
-        margin_to_closest_left = np.min(
-            last_l
-            - bboxes[same_line][~to_shift_left, 0][:-1]
-            - bboxes[same_line][~to_shift_left, 2][:-1]
-        )
+        if (~to_shift_left).sum() > 1:
+            margin_to_closest_left = np.min(
+                last_l
+                - bboxes[same_line][~to_shift_left, 0][:-1]
+                - bboxes[same_line][~to_shift_left, 2][:-1]
+            )
+        else:
+            # else it's the leftmost bbox
+            margin_to_closest_left = 0
         to_shift_idc = np.nonzero(same_line)[0][to_shift_left]
         bboxes[to_shift_idc, 0] = (
             bboxes[to_shift_idc, 0]
