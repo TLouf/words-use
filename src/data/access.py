@@ -187,16 +187,9 @@ def places_from_mongo(db, filter, add_fields=None, tweets_filter=None, tweets_co
                     f'There is no places collection in {db}, specify tweet '
                     'filters and collections from which to retrieve them.'
                 )
-            return pd.concat([
-                places_from_mongo_tweets(db, coll, tweets_filter, add_fields=add_fields)
-                for coll in tweets_colls
-            ])
+            return places_from_mongo_tweets(db, tweets_colls, tweets_filter, add_fields=add_fields)
 
-        places = con.extract(
-            filter,
-            fields=all_fields,
-            collections_subset=['places']
-        )
+        places = con['places'].extract(filter, fields=all_fields)
 
         all_fields.remove('bounding_box.coordinates')
         places_dict = {key: [] for key in all_fields}
@@ -217,7 +210,7 @@ def places_from_mongo(db, filter, add_fields=None, tweets_filter=None, tweets_co
     return raw_places_gdf
 
 
-def places_from_mongo_tweets(db, coll, tweets_filter, add_fields=None):
+def places_from_mongo_tweets(db, colls, tweets_filter, add_fields=None):
     '''
     When no 'places' collection
     '''
@@ -225,31 +218,28 @@ def places_from_mongo_tweets(db, coll, tweets_filter, add_fields=None):
         add_fields = []
 
     with querier.Connection(db) as con:
-        grp_dict = {
-            "_id": "$place.id",
-            "name": {"$first": "$place.name"},
-            "type": {"$first": "$place.place_type"},
-            "nr_tweets": {"$sum": 1},
-            "bbox": {"$first": "$place.bounding_box.coordinates"},
-            **{field: {"$first": f"$place.{field}"} for field in add_fields}
+        agg_dict = {
+            "name": ("place.name", "first"),
+            "type": ("place.place_type", "first"),
+            "nr_tweets": ("place.id", "count"),
+            "bbox": ("place.bounding_box.coordinates", "first"),
+            **{field: (f"place.{field}", "first") for field in add_fields}
         }
- 
-        places = con._db[coll].aggregate(
-            [
-                {"$match": tweets_filter._query},
-                {"$group": grp_dict},
-            ],
-            allowDiskUse=True,
-        )
-        
         geodf_dicts = []
-        for p in tqdm(places):
-            p['id'] = p.pop('_id')
-            bbox = p.pop('bbox')[0]
-            p['geometry'], _ = geo_utils.geo_from_bbox(bbox)
-            geodf_dicts.append(p)
+
+        for coll in colls:
+            places = con[coll].groupby(
+                'place.id', pre_filter=tweets_filter, allowDiskUse=True
+            ).agg(**agg_dict)
+
+            for p in tqdm(places):
+                p['id'] = p.pop('_id')
+                bbox = p.pop('bbox')[0]
+                p['geometry'], _ = geo_utils.geo_from_bbox(bbox)
+                geodf_dicts.append(p)
 
     raw_places_gdf = (geopd.GeoDataFrame.from_dict(geodf_dicts)
+                                        .drop_duplicates(subset='id')
                                         .set_index('id', drop=False)
                                         .set_crs('epsg:4326'))
     return raw_places_gdf
@@ -271,11 +261,7 @@ def tweets_from_mongo(db, filter, colls, add_cols=None):
     all_fields = [d['field'] for d in cols_dict.values()]
 
     with querier.Connection(db) as con:
-        tweets = con.extract(
-            filter,
-            fields=all_fields,
-            collections_subset=colls
-        )
+        tweets = con[colls].extract(filter, fields=all_fields)
 
         all_fields = [f.split('.') for f in all_fields]
         col_names = cols_dict.keys()
@@ -347,14 +333,14 @@ def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
     `chunksize`. From (as I'm writing, not-yet-released) dask-mongo.
     '''
     with querier.Connection(db) as con:
-        nrows = con.count_entries(filter, collection=coll)
+        nrows = con[coll].count_entries(filter)
         npartitions = int(ceil(nrows / chunksize))
         LOGGER.info(
             f'{nrows:.3e} tweets matching the filter in collection {coll} of '
             f'DB {db}, dividing in {npartitions} chunks...'
         )
         partitions_ids = list(
-            con._db[coll].aggregate(
+            con[coll].aggregate(
                 [
                     {"$match": filter},
                     {"$bucketAuto": {"groupBy": "$_id", "buckets": npartitions}},
