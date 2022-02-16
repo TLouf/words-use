@@ -6,6 +6,7 @@ import pickle
 import inspect
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
+from tqdm.auto import tqdm
 import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -120,7 +121,7 @@ class Region:
                 if parquet_file.exists():
                     res = pd.read_parquet(parquet_file)
                 else:
-                    dfs_to_concat = []
+                    files_to_read = []
                     reg_dict['year_from'] = '{year_from}'
                     reg_dict['year_to'] = '{year_to}'
                     year_patt = Path(
@@ -137,11 +138,15 @@ class Region:
                             years = [int(y) for y in match.groups()]
                             # Assumes no overlap
                             if years[0] >= self.year_from and years[1] <= self.year_to:
-                                dfs_to_concat.append(pd.read_parquet(f))
+                                files_to_read.append(f)
 
-                    res = dfs_to_concat[0]
-                    for df in dfs_to_concat[1:]:
-                        res = res.add(df, fill_value=0)
+                    pbar = tqdm(enumerate(files_to_read), total=len(files_to_read))
+                    for i, f in pbar:
+                        pbar.set_description(f.name)
+                        if i == 0:
+                            res = pd.read_parquet(f)
+                        else:
+                            res = res.add(pd.read_parquet(f), fill_value=0)
 
                 setattr(self, df_name, res)
 
@@ -289,13 +294,21 @@ class Language:
         if self.global_counts is None:
             cols = ['count', 'is_proper', 'nr_cells']
             self.global_counts = pd.DataFrame({c: [] for c in cols})
-            for reg in self.regions:
+            pbar = tqdm(self.regions)
+            for reg in pbar:
+                pbar.set_description(reg.cc)
                 reg_counts = reg.read_counts(
-                    'region_counts', files_fmt=self.paths.counts_files_fmt)
-                self.global_counts = self.global_counts.add(reg_counts[cols],
-                                                            fill_value=0)
-            self.global_counts = self.global_counts.sort_values(by='count',
-                                                                ascending=False)
+                    'region_counts', files_fmt=self.paths.counts_files_fmt
+                )
+                reg_counts['is_proper'] = (
+                    reg_counts['count_upper'] / reg_counts['count'] > self.upper_th
+                )
+                self.global_counts = self.global_counts.add(
+                    reg_counts[cols], fill_value=0
+                )
+        self.global_counts = self.global_counts.sort_values(
+            by='count', ascending=False
+        )
         return self.global_counts
 
 
@@ -310,11 +323,16 @@ class Language:
 
     def get_raw_cell_counts(self):
         if self.raw_cell_counts is None:
-            self.raw_cell_counts = pd.concat([
-                reg.read_counts('raw_cell_counts',
-                                files_fmt=self.paths.counts_files_fmt)
-                for reg in self.regions
-                ]).sort_index(axis=0, level=0)
+            to_concat = []
+            pbar = tqdm(self.regions)
+            for reg in pbar:
+                pbar.set_description(reg.cc)
+                to_concat.append(
+                    reg.read_counts(
+                        'raw_cell_counts', files_fmt=self.paths.counts_files_fmt
+                    )
+                )
+            self.raw_cell_counts = pd.concat(to_concat).sort_index(axis=0, level=0)
         return self.raw_cell_counts
 
 
