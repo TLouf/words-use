@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.lines as mlines
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import pandas as pd
 import rpack
 import src.utils.geometry as geo
@@ -256,7 +257,7 @@ def cluster_level(
 ):
     if axes is None:
         fig, axes = plt.subplots(len(regions), figsize=figsize)
-        
+
     if len(regions) == 1:
         axes = (axes,)
 
@@ -277,7 +278,10 @@ def cluster_level(
         reg.shape_geodf.plot(
             ax=ax, color='none', edgecolor='black', linewidth=0.5
         )
+        ax.set_title(reg.readable)
         ax.set_axis_off()
+
+    fig = ax.get_figure()
 
     # The colours will correspond because groupby sorts by the column by
     # which we group, and we sorted the unique labels.
@@ -292,16 +296,16 @@ def cluster_level(
 
 
 def choropleth(
-    plot_series, regions, fig=None, axes=None, figsize=None, cmap=None,
+    plot_series, regions, axes=None, cax=None, cmap=None,
     norm=None, vmin=None, vmax=None, vcenter=None,
     cbar_label=None, null_color='gray', save_path=None, show=True,
     **plot_kwargs
 ):
     if axes is None:
-        fig, axes = plt.subplots(len(regions) + 1, figsize=figsize)
+        fig, axes = plt.subplots(len(regions))
 
-    map_axes = axes[:-1]
-    cax = axes[-1]
+    if len(regions) == 1:
+        axes = (axes,)
 
     if norm is None:
         if vmin is None:
@@ -312,8 +316,7 @@ def choropleth(
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         else:
             norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
-
-    for ax, reg in zip(map_axes, regions):
+    for ax, reg in zip(axes, regions):
         area_gdf = reg.shape_geodf
         area_gdf.plot(ax=ax, color=null_color, edgecolor='none', alpha=0.3)
         plot_df = reg.cells_geodf.join(plot_series, how='inner')
@@ -321,10 +324,19 @@ def choropleth(
             column=plot_series.name, ax=ax, norm=norm, cmap=cmap, **plot_kwargs
         )
         area_gdf.plot(ax=ax, color='none', edgecolor='black', linewidth=0.5)
+        ax.set_title(reg.readable)
         ax.set_axis_off()
 
+    fig = ax.get_figure()
+
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    _ = fig.colorbar(sm, cax=cax, label=cbar_label)
+    if cax is None:
+        divider = make_axes_locatable(ax)
+        # Create an axes on the right side of ax. The width of cax will be 5% of ax
+        # and the padding between cax and ax will be fixed at 0.1 inch.
+        cax = divider.append_axes('right', size='5%', pad=0.1)
+
+    _ = fig.colorbar(sm, cax=cax, label=cbar_label, shrink=0.8)
 
     if show:
         fig.show()

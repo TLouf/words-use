@@ -526,28 +526,36 @@ class Language:
 
 
     def map_continuous_choro(
-        self, z_plot, normed_bboxes=None, total_width=178, total_height=None,
-        **choro_kwargs
+        self, z_plot, normed_bboxes: bool | np.ndarray = True,
+        total_width=178, total_height=None, axes=None, cax=None, **choro_kwargs
     ):
-        if normed_bboxes is None:
+        if normed_bboxes is True:
+            # calculate optimal position
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
                 total_width, total_height=total_height, ratio_lgd=1/10
             )
 
-        figsize = (total_width/10/2.54, total_height/10/2.54)
+        if axes is None:
+            figsize = (total_width/10/2.54, total_height/10/2.54)
+            _, axes = plt.subplots(len(regions) + 1, figsize=figsize)
+            cax = axes[-1]
+            axes = axes[:-1]
+        
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
+
         fig, axes = map_viz.choropleth(
-            plot_series, self.regions, figsize=figsize, **choro_kwargs
+            plot_series, self.regions, axes=axes, cax=cax, **choro_kwargs
         )
 
-        for ax, bbox in zip(axes, normed_bboxes):
-            ax.set_position(bbox)
+        # if normed_bboxes set to False, don't position the axes
+        if normed_bboxes:
+            for ax, bbox in zip(axes, normed_bboxes):
+                ax.set_position(bbox)
 
         return fig, axes
 
 
-    def map_word(self, word, total_width=178, total_height=None, vcenter=0,
-                 vmin=None, vmax=None, cmap='bwr', **plot_kwargs):
+    def map_word(self, word, vcenter=0, vmin=None, vmax=None, cmap='bwr', **plot_kwargs):
         cbar_label = f'{self.word_vectors.word_vec_var} of {word}'
         # assumes moran has been done
         is_regional = self.global_counts['is_regional']
@@ -555,18 +563,20 @@ class Language:
         z_plot = self.word_vectors[:, word_idx]
 
         fig, axes = self.map_continuous_choro(
-            z_plot, total_width=total_width, total_height=total_height,
-            cmap=cmap, vcenter=vcenter, vmin=vmin, vmax=vmax,
-            cbar_label=cbar_label, **plot_kwargs)
+            z_plot, cmap=cmap, vcenter=vcenter, vmin=vmin, vmax=vmax,
+            cbar_label=cbar_label, **plot_kwargs
+        )
         return fig, axes
 
 
     def map_comp(self, i_decompo=-1, comps=None, cmap='bwr',
-                         total_width=178, total_height=None, save_path_fmt='',
-                         **plot_kwargs):
-        normed_bboxes, (total_width, total_height) = self.get_maps_pos(
-            total_width, total_height=total_height, ratio_lgd=1/10
-        )
+                 total_width=178, total_height=None, save_path_fmt='',
+                 normed_bboxes=True, **plot_kwargs):
+        if normed_bboxes is True:
+            normed_bboxes, (total_width, total_height) = self.get_maps_pos(
+                total_width, total_height=total_height, ratio_lgd=1/10
+            )
+
         decomp = self.decompositions[i_decompo]
         proj_vectors = decomp.proj_vectors
         if comps is None:
