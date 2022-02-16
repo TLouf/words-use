@@ -665,14 +665,33 @@ class Decomposition:
         return net_file_path
 
 
-    def explained_var_plot(self, n_components=None):
-        if n_components is None:
-            n_components = self.decomposition.n_components
-        fig, ax = plt.subplots(1)
-        explained_var_ratio = self.decomposition.explained_variance_ratio_[:n_components]
-        x_plot = np.arange(0, len(explained_var_ratio) + 1)
-        y_plot = np.concatenate([((0,)), explained_var_ratio.cumsum()])
-        ax.plot(x_plot, y_plot, marker='o')
+    def explained_var_plot(self, n_components=None, ax=None, lgd_kwargs=None):
+        if lgd_kwargs is None:
+            lgd_kwargs = {}
+        if ax is None:
+            fig, ax = plt.subplots(1)
+        fig = ax.get_figure()
+
+        var_prop = self.decomposition.explained_variance_ratio_[:n_components]
+        n_components = var_prop.size
+        var_prop = np.insert(var_prop, 0, 0)
+        x_plot = np.arange(0, n_components + 1)
+
+        ax.stairs(var_prop[1:], x_plot, alpha=0.5, fill=True, label="component's")
+        y_plot = broken_stick(self.decomposition.n_features_)[:n_components]
+        ax.stairs(y_plot, x_plot, label='broken-stick model', color='r', fill=True, alpha=0.5)
+        ax.set_xlabel('component rank')
+        ax.set_ylabel('by component')
+        ax.set_yscale('log')
+        ax.set_title('proportion of variance explained')
+
+        ax2 = ax.twinx()
+        y_plot = var_prop.cumsum()
+        ax2.plot(x_plot, y_plot, ls=':', marker='.', label='cumulative')
+        ax2.set_ylabel('cumulative')
+        fig.legend(
+            title='explained variance', bbox_transform=ax.transAxes, **lgd_kwargs
+        )
         return fig, ax
 
 
