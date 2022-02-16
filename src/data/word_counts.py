@@ -72,16 +72,16 @@ def get_cell_of_pt_tweets(
 ):
     if tweets_pts_df.shape[0] > 0:
         pt_is_gps = tweets_pts_df['pt_is_gps']
-    tweets_pts_df['geometry'] = None
-    # Tweets with POI place:
-    pois_cells = geopd.sjoin(
+        tweets_pts_df['geometry'] = None
+        # Tweets with POI place:
+        pois_cells = geopd.sjoin(
             poi_places_geodf, cells_geodf,
             predicate='within', rsuffix='cell', how='inner')
-    tweets_pts_df.loc[~pt_is_gps, 'cell_id'] = (
-        tweets_pts_df.loc[~pt_is_gps]
-                     .join(pois_cells['cell_id'],
-                           on='place_id', how='inner')['cell_id'])
-    # Tweets with GPS coordinates:
+        tweets_pts_df.loc[~pt_is_gps, 'cell_id'] = (
+            tweets_pts_df.loc[~pt_is_gps]
+                        .join(pois_cells['cell_id'],
+                            on='place_id', how='inner')['cell_id'])
+        # Tweets with GPS coordinates:
         sample_coord = tweets_pts_df.loc[pt_is_gps, 'coordinates'].iloc[0]
         if isinstance(sample_coord, list):
             make_pt_fun = Point
@@ -93,11 +93,11 @@ def get_cell_of_pt_tweets(
         pt_geoms = tweets_pts_df.loc[pt_is_gps, 'coordinates'].apply(make_pt_fun)
         tweets_gps_geo = geopd.GeoDataFrame(geometry=pt_geoms, crs=latlon_proj)
         tweets_gps_geo = tweets_gps_geo.to_crs(cells_geodf.crs)
-    tweets_gps_cells = geopd.sjoin(
-        tweets_gps_geo, cells_geodf[['geometry']],
+        tweets_gps_cells = geopd.sjoin(
+            tweets_gps_geo, cells_geodf[['geometry']],
             predicate='within', rsuffix='cell', how='inner'
         )['index_cell']
-    tweets_pts_df.loc[pt_is_gps, 'cell_id'] = tweets_gps_cells
+        tweets_pts_df.loc[pt_is_gps, 'cell_id'] = tweets_gps_cells
     else:
         cols = tweets_pts_df.columns.tolist() + ['geometry', 'cell_id']
         tweets_pts_df = pd.DataFrame(columns=cols)
@@ -128,8 +128,7 @@ def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
     get faster execution, at the cost of being able to distinguish proper nouns
     later on.
     '''
-    #word_patt = re.compile(r"\b(?P<word>[a-zA-Z\u00C0-\u00FF]+)\b")
-    word_patt = re.compile(r"\b[a-zA-Z\u00C0-\u00FF]+\b")
+    word_patt = re.compile(r'\b[^\W\d_]+?\b')
     tweets_bbox_df, tweets_pts_df = separate_pts_from_bboxes(
         tweets_df, cells_geodf, places_geodf, latlon_proj=latlon_proj
     )
