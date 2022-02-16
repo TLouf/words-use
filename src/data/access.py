@@ -17,7 +17,7 @@ from tqdm import tqdm
 import pandas as pd
 import geopandas as geopd
 import bson
-import querier
+import querier as qr
 
 import src.utils.geometry as geo_utils
 
@@ -180,7 +180,7 @@ def places_from_mongo(db, filter, add_fields=None, tweets_filter=None, tweets_co
     default_fields = ['id', 'name', 'place_type', 'bounding_box.coordinates']
     all_fields = default_fields + add_fields
 
-    with querier.Connection(db) as con:
+    with qr.Connection(db) as con:
 
         if 'places' not in con.list_available_collections():
             if tweets_colls is None or tweets_filter is None:
@@ -211,14 +211,16 @@ def places_from_mongo(db, filter, add_fields=None, tweets_filter=None, tweets_co
     return raw_places_gdf
 
 
-def places_from_mongo_tweets(db, colls, tweets_filter, add_fields=None):
+def places_from_mongo_tweets(db, colls: str | list, tweets_filter, add_fields=None):
     '''
     When no 'places' collection
     '''
     if add_fields is None:
         add_fields = []
+    if isinstance(colls, str):
+        colls = [colls]
 
-    with querier.Connection(db) as con:
+    with qr.Connection(db) as con:
         agg_dict = {
             "name": ("place.name", "first"),
             "type": ("place.place_type", "first"),
@@ -246,7 +248,7 @@ def places_from_mongo_tweets(db, colls, tweets_filter, add_fields=None):
     return raw_places_gdf
 
 
-def tweets_from_mongo(db, filter, colls, add_cols=None):
+def tweets_from_mongo(db, filter, colls: str | list, add_cols=None):
     '''
     Return the DataFrame of tweets in the collections `colls` of the database
     `db` matching `filter`.
@@ -254,27 +256,38 @@ def tweets_from_mongo(db, filter, colls, add_cols=None):
     if add_cols is None:
         add_cols = {}
     default_cols = {
-        'text': {'field': 'text', 'dtype': 'string'},
+        'text': {'field': ['extended_tweet.full_text', 'text'], 'dtype': 'string'},
         'coordinates': {'field': 'coordinates.coordinates', 'dtype': 'object'},
         'place_id': {'field': 'place.id', 'dtype': 'string'},
     }
     cols_dict = {**default_cols, **add_cols}
-    all_fields = [d['field'] for d in cols_dict.values()]
+    fields_to_extract = []
+    for d in cols_dict.values():
+        if isinstance(d['field'], str):
+            d['field'] = [d['field']]
+        fields_to_extract.extend(d['field'])
 
-    with querier.Connection(db) as con:
-        tweets = con[colls].extract(filter, fields=all_fields)
+    with qr.Connection(db) as con:
+        tweets = con[colls].extract(filter, fields=fields_to_extract)
 
-        all_fields = [f.split('.') for f in all_fields]
-        col_names = cols_dict.keys()
-        tweets_dict = {key: [] for key in col_names}
+        assign_dict = {
+            col: [f.split('.') for f in col_dict['field']]
+            for col, col_dict in cols_dict.items()
+        }
+        tweets_dict = {key: [] for key in cols_dict.keys()}
 
         for t in tweets:
-            for field, col in zip(all_fields, col_names):
-                value = t.get(field[0])
+            # In the result, nested fields will actually be contained in a nested dict.
+            for col, fields in assign_dict.items():
+                for f in fields:
+                    value = t.get(f[0])
 
-                if len(field) > 1 and value is not None:
-                    for part in field[1:]:
-                        value = value.get(part)
+                    if len(f) > 1 and value is not None:
+                        for part in f[1:]:
+                            value = value.get(part)
+
+                    if value is not None:
+                        break
 
                 tweets_dict[col].append(value)
 
