@@ -167,11 +167,11 @@ def chunk_moran(list_i, word_vectors, contiguity):
     return moran_dict
 
 
-def broken_stick(n_components):
-    var = 1 / n_components * np.ones(n_components)
-    for i in range(2, n_components+1):
-        var[-i] = var[-i+1] + 1 / (n_components + 1 - i)
-    return var / n_components
+def broken_stick(n_features):
+    var = 1 / n_features * np.ones(n_features)
+    for i in range(2, n_features+1):
+        var[-i] = var[-i+1] + 1 / (n_features + 1 - i)
+    return var / n_features
 
 
 @dataclass
@@ -289,14 +289,14 @@ class Clustering:
                         max_score = new_score
                         i_dest = pot_i_dest
                         i_og = pot_i_og
-                        
+
                 binary_matrix[:, i_og], binary_matrix[:, i_dest] = (
                     binary_matrix[:, i_dest], binary_matrix[:, i_og].copy())
                 print(i_og, i_dest)
                 i_col_list.remove(i_og)
                 if i_og != i_dest:
                     i_col_list.remove(i_dest)
-                    
+
         return binary_matrix
 
 
@@ -553,7 +553,7 @@ class HierarchicalClustering:
                 elif label in before_labels:
                     c = prev_color_dict[str(label)]
                     list_used_labels.append(label)
-            else:
+                else:
                     cell_attr = self.levels[lvl].labels
                     bigger_clust = cell_attr[cell_attr.astype(int).isin(before_labels)].value_counts().idxmax()
                     c = prev_color_dict[str(bigger_clust)]
