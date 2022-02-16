@@ -68,6 +68,9 @@ def get_states_geodf(state_fpath, xy_proj='epsg:3857'):
 
     
 def get_counties_geodf(cnty_fpath, states_geodf, xy_proj='epsg:3857'):
+    '''
+    Index is sorted
+    '''
     counties_geodf = geopd.read_file(cnty_fpath)
     cols = ['cell_id', 'state_name','name', 'geometry']
     states_geoseries = states_geodf['state_name']

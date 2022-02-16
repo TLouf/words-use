@@ -193,7 +193,7 @@ class Language:
             reg.get_cells_geodf(all_cntr_shapes=all_cntr_shapes)
                .to_crs(self.latlon_proj)
             for reg in self.regions
-            ])
+        ]).sort_index()
         # To get the shape anyway when `cells_geodf` has been provided in init.
         for reg in self.regions:
             _ = reg.get_shape_geodf(all_cntr_shapes)
