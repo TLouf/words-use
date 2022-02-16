@@ -47,6 +47,19 @@ class Region:
         self.shapefile_val = self.shapefile_val or self.cc
 
 
+    def __repr__(self):
+        field_dict = self.__dataclass_fields__
+        attr_str_components = []
+        for key in field_dict.keys():
+            field = getattr(self, key)
+            size = getattr(field, 'size', 0)
+            if isinstance(size, int) and size < 10:
+                attr_str_components.append(f'{key}={field!r}')
+
+        attr_str = ', '.join(attr_str_components)
+        return f'{self.__class__.__name__}({attr_str})'
+
+
     @classmethod
     def from_dict(cls, cc, lc, d , **kwargs):
         return cls(cc=cc, lc=lc, **kwargs, **{
@@ -184,6 +197,24 @@ class Language:
         # To get the shape anyway when `cells_geodf` has been provided in init.
         for reg in self.regions:
             _ = reg.get_shape_geodf(all_cntr_shapes)
+
+
+    def __repr__(self):
+        field_dict = self.__dataclass_fields__
+        persistent_field_keys = [
+            key
+            for key, value in field_dict.items()
+            if not isinstance(value.type, InitVar)
+        ]
+        attr_str_components = []
+        for key in persistent_field_keys:
+            field = getattr(self, key)
+            size = getattr(field, 'size', 0)
+            if isinstance(size, int) and size < 10:
+                attr_str_components.append(f'{key}={field!r}')
+
+        attr_str = ', '.join(attr_str_components)
+        return f'{self.__class__.__name__}({attr_str})'
 
 
     @classmethod

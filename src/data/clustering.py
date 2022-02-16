@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field, asdict, InitVar
 from pathlib import Path
 from typing import Union, List, Optional, Callable
@@ -179,6 +181,7 @@ class Clustering:
     source_data: InitVar[Union[dict, np.ndarray]]
     cells_ids: InitVar[np.ndarray]
     method_repr: str
+    cmap: str | mcolors.Colormap | None = None
     method_obj: Optional[Callable] = None
     method_args: Optional[list] = None
     method_kwargs: Optional[dict] = None
@@ -192,10 +195,10 @@ class Clustering:
     def __post_init__(self, source_data, cells_ids):
         self.cell_dict = self.get_cell_dict(source_data, cells_ids)
         self.init_labels()
-        
+
         if self.colors is None:
-            self.attr_color_to_labels()
-            
+            self.attr_color_to_labels(cmap=self.cmap)
+
         if self.kwargs_str is None:
             self.kwargs_str = '_params=({})'.format(
                 '_'.join([f'{key}={value}'
@@ -211,12 +214,21 @@ class Clustering:
 
 
     def __repr__(self):
-        self_dict = asdict(self)
-        exclude_keys = ['labels', 'colors']
-        attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
-                              for key in self_dict.keys()
-                              if key not in exclude_keys])
-        return f'Clustering({attr_str})'
+        field_dict = self.__dataclass_fields__
+        persistent_field_keys = [
+            key
+            for key, value in field_dict.items()
+            if not isinstance(value.type, InitVar)
+        ]
+        attr_str_components = []
+        for key in persistent_field_keys:
+            field = getattr(self, key)
+            size = getattr(field, 'size', 0)
+            if isinstance(size, int) and size < 100:
+                attr_str_components.append(f'{key}={field!r}')
+
+        attr_str = ', '.join(attr_str_components)
+        return f'{self.__class__.__name__}({attr_str})'
 
 
     def get_cell_dict(self, source_data, cells_ids):
@@ -393,6 +405,7 @@ class Clustering:
 class HierarchicalClustering:
     levels: List[Clustering]
     method_repr: str
+    cmap: str | mcolors.Colormap | None = None
     method_args: Optional[list] = None
     method_kwargs: Optional[dict] = None
     kwargs_str: Optional[str] = None
@@ -404,11 +417,11 @@ class HierarchicalClustering:
         if self.kwargs_str is None:
             self.kwargs_str = '_params=({})'.format(
                 '_'.join([f'{key}={value}'
-                         for key, value in self.method_kwargs.items()]))
+                          for key, value in self.method_kwargs.items()]))
 
         if self.method_repr == 'shc.linkage':
             # not implemented for other methods
-            self.attr_lvl_colors()
+            self.attr_lvl_colors(cmap=self.cmap)
 
 
     def __str__(self):
@@ -420,16 +433,20 @@ class HierarchicalClustering:
 
 
     def __repr__(self):
-        self_dict = asdict(self)
-        exclude_keys = ['linkage', 'cut_tree']
-        attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
-                              for key in self_dict.keys()
-                              if key not in exclude_keys])
-        return f'HierarchicalClustering({attr_str})'
+        field_dict = self.__dataclass_fields__
+        attr_str_components = []
+        for key in field_dict.keys():
+            field = getattr(self, key)
+            size = getattr(field, 'size', 0)
+            if isinstance(size, int) and size < 100:
+                attr_str_components.append(f'{key}={field!r}')
+
+        attr_str = ', '.join(attr_str_components)
+        return f'{self.__class__.__name__}({attr_str})'
 
 
     @classmethod
-    def from_scipy_agglo(cls, vectors, cells_ids, max_n_clusters=None,
+    def from_scipy_agglo(cls, vectors, cells_ids, max_n_clusters=None, cmap=None,
                          **linkage_kwargs):
         method_repr = 'shc.linkage'
         linkage = shc.linkage(vectors, **linkage_kwargs)
@@ -444,7 +461,7 @@ class HierarchicalClustering:
                        method_kwargs={**linkage_kwargs, 'lvl': i})
             for i, lvl in enumerate(cut_tree.T)]
         return cls(levels, method_repr, method_kwargs=linkage_kwargs,
-                   linkage=linkage, cut_tree=cut_tree)
+                   linkage=linkage, cut_tree=cut_tree, cmap=cmap)
 
     @classmethod
     def from_oslom_run(cls, oslom_net_file_path, cells_ids,
@@ -617,7 +634,7 @@ class Decomposition:
     word_vectors: word_counts.WordVectors
     decomposition: PCA
     proj_vectors: np.ndarray
-    word_mask: np.ndarray
+    word_mask: np.ndarray | pd.Series
     n_components: int = 0
     clusterings: List[Union[Clustering, HierarchicalClustering]] = field(
         default_factory=list
@@ -780,3 +797,14 @@ class Decomposition:
             state, cells_ids, **sbm_kwargs)
         self.clusterings.append(clustering)
         return clustering
+
+
+def select_components(pca, n_components):
+    pca.n_components_ = n_components
+    pca.components_ = pca.components_[:n_components]
+    pca.explained_variance_ = pca.explained_variance_[:n_components]
+    pca.explained_variance_ratio_ = (
+        pca.explained_variance_ratio_[:n_components]
+    )
+    pca.singular_values_ = pca.singular_values_[:n_components]
+    return pca
