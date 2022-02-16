@@ -164,7 +164,7 @@ class Language:
     list_cc: list[str]
     regions: list[Region]
     _paths: paths_utils.ProjectPaths
-    all_cntr_shapes: InitVar[geopd.GeoDataFrame]
+    all_cntr_shapes: InitVar[geopd.GeoDataFrame] = None
     year_from: int = 2015
     year_to: int = 2021
     cc: str = field(init=False)
@@ -215,6 +215,21 @@ class Language:
 
         attr_str = ', '.join(attr_str_components)
         return f'{self.__class__.__name__}({attr_str})'
+
+
+    @classmethod
+    def from_other(cls, other: Language):
+        field_dict = other.__dataclass_fields__
+        init_field_keys = [
+            key
+            for key, value in field_dict.items()
+            if value.init and not isinstance(value.type, InitVar)
+        ]
+        other_attrs = {
+            key: getattr(other, key, field_dict[key].default)
+            for key in init_field_keys
+        }
+        return cls(**other_attrs)
 
 
     @classmethod
