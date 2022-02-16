@@ -563,8 +563,11 @@ class HierarchicalClustering:
             prev_color_dict = lvl_color_dict.copy()
 
 
-    def plot_dendrogram(self, coloring_lvl=-1, **shc_dendro_kwargs):
-        fig, ax = plt.subplots(1, figsize=(10, 7))
+    def plot_dendrogram(self, coloring_lvl=-1, ax=None, **shc_dendro_kwargs):
+        if ax is None:
+            fig, ax = plt.subplots(1, figsize=(10, 7))
+        fig = ax.get_figure()
+
         clust_coloring = self.levels[coloring_lvl]
         hex_color_dict = {key: mcolors.to_hex(c)
                           for key, c in clust_coloring.colors.items()}
@@ -585,9 +588,10 @@ class HierarchicalClustering:
                       for x in i12)
             link_cols[i+nr_leaves] = c1 if c1 == c2 else 'k'
 
-        _ = shc.dendrogram(
-            self.linkage, truncate_mode='level', ax=ax, p=len(self.levels),
-            link_color_func=lambda x: link_cols[x], **shc_dendro_kwargs)
+        shc_dendro_kwargs.setdefault('truncate_mode', 'level')
+        shc_dendro_kwargs.setdefault('p', len(self.levels) // 2 + 1)
+        shc_dendro_kwargs.setdefault('link_color_func', lambda x: link_cols[x])
+        _ = shc.dendrogram(self.linkage, ax=ax, **shc_dendro_kwargs)
 
         return fig, ax
 
