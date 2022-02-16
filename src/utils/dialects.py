@@ -8,8 +8,6 @@ from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
 from tqdm.auto import tqdm
 import numpy as np
-import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import pandas as pd
 import geopandas as geopd
 import ray
@@ -34,7 +32,6 @@ class Region:
     max_place_area: float = 5e9
     cell_size: float | str = 50e3
     shape_bbox: list[float] | None = None
-    shapefile_name: str = 'CNTR_RG_01M_2016_4326.shp'
     shapefile_col: str = 'FID'
     shape_geodf: geopd.GeoDataFrame | None = None
     cells_geodf: geopd.GeoDataFrame | None = None
@@ -81,7 +78,8 @@ class Region:
         # custom to_dict to keep only parameters that can be in save path
         list_attr = [
             'lc', 'readable', 'cc', 'year_from', 'year_to', 'cell_size',
-            'max_place_area', 'xy_proj']
+            'max_place_area', 'xy_proj'
+        ]
         return {attr: getattr(self, attr) for attr in list_attr}
 
 
@@ -175,8 +173,11 @@ class Language:
     cc: str = field(init=False)
     latlon_proj: str = 'epsg:4326'
     min_nr_cells: int = 10
+    upper_th: float = 0.4
     cell_tokens_th: float = 1e4
     cell_tokens_decade_crit: float = 2.
+    word_tokens_th: float = 0
+    max_word_rank: int | None = None
     cells_geodf: geopd.GeoDataFrame = field(init=False)
     global_counts: pd.DataFrame | None = None
     raw_cell_counts: pd.DataFrame | None = None
@@ -245,8 +246,10 @@ class Language:
         regions = [Region.from_dict(cc, lc, countries_dict[cc],
                                     year_from=year_from, year_to=year_to)
                    for cc in list_cc]
-        return cls(lc, readable, list_cc, regions, paths,
-                   all_cntr_shapes, **kwargs)
+        return cls(
+            lc, readable, list_cc, regions, paths, all_cntr_shapes,
+            year_from=year_from, year_to=year_to, **kwargs
+        )
 
 
     def data_file_fmt(self, save_dir, add_keys=None):
@@ -263,7 +266,9 @@ class Language:
         # custom to_dict to keep only parameters that can be in save path
         list_attr = [
             'lc', 'readable', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
-            'cell_tokens_th', 'word_vec_var', 'cdf_th', 'smoothing_token_th']
+            'cell_tokens_th', 'cdf_th', 'year_from', 'year_to', 'max_word_rank',
+            'upper_th',
+        ]
         return {attr: getattr(self, attr) for attr in list_attr}
 
 
