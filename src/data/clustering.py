@@ -676,8 +676,7 @@ class Decomposition:
         return fig, ax
 
 
-    def map_comp_loading(self, lang, nr_plots=5, cmap='plasma',
-                         **plot_kwargs):
+    def map_comp(self, lang, nr_plots=5, cmap='plasma', **plot_kwargs):
         for i in range(nr_plots):
             comp_series = pd.Series(self.proj_vectors[:, i],
                                     index=lang.relevant_cells, name='pca_comp')
