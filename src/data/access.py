@@ -6,6 +6,7 @@ strings refers to a column. Cannot use Modin or Dask because of gzip
 compression, Parquet data files would be ideal.
 '''
 from __future__ import annotations
+from functools import reduce
 from math import ceil
 import zipfile
 import gzip
@@ -313,34 +314,36 @@ def geo_within_filter(polygon_coords):
     }
 
 
-def normalize_object_id_pair(min_id: int | str | bson.ObjectId, max_id: int | str | bson.ObjectId):
-    '''
-    Some IDs in the MongoDB may be integers with fewer than 24 digits, and thus
-    may not be compared correctly to ObjectId-compliant str IDs of 24
-    characters. Hence this function to cast these to strings left padded with
-    zeros if need be.
-    '''
-    if type(min_id) != type(max_id):
-        min_id = str(min_id).zfill(24)
-        max_id = str(max_id).zfill(24)
-    return min_id, max_id
+def get_all_types_mongo_id(id: int | str | bson.ObjectId):
+    # only conversion that's not clear how to perform is str, objectid -> int, but very
+    # few int "_id" so should be ok to discard them.
+    types = [id]
+    if isinstance(id, bson.ObjectId):
+        types.append(str(id))
+    elif isinstance(id, str):
+        types.append(bson.ObjectId(id.zfill(24)))
+    elif isinstance(id, int):
+        types.append(str(id).zfill(24))
+        types.append(bson.ObjectId(types[-1]))
+    return types
 
 
-def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
+def chunk_filters_mongo(db, colls: str | list, filter, chunksize=1e6):
     '''
     Returns a list of filters of ID ranges that split the elements of collection
     `coll` of MongoDB database `db` matching `filter` into chunks of size
     `chunksize`. From (as I'm writing, not-yet-released) dask-mongo.
     '''
-    with querier.Connection(db) as con:
-        nrows = con[coll].count_entries(filter)
+    with qr.Connection(db) as con:
+        nrows = con[colls].count_entries(filter)
         npartitions = int(ceil(nrows / chunksize))
         LOGGER.info(
-            f'{nrows:.3e} tweets matching the filter in collection {coll} of '
+            f'{nrows:.3e} tweets matching the filter in collection {colls} of '
             f'DB {db}, dividing in {npartitions} chunks...'
         )
+        # TODO: same but with "groupBy": "$created_at"?? may be slower though?
         partitions_ids = list(
-            con[coll].aggregate(
+            con[colls].aggregate(
                 [
                     {"$match": filter},
                     {"$bucketAuto": {"groupBy": "$_id", "buckets": npartitions}},
@@ -350,9 +353,26 @@ def chunk_filters_mongo(db, coll, filter, chunksize=1e6):
         )
 
     chunk_filters = []
+    greater_fun = lambda id: qr.Filter().greater_or_equals("_id", id)
+    less_fun = lambda id: qr.Filter().less_than("_id", id)
+
     for i, partition in enumerate(partitions_ids):
-        lt_key = "$lte" if i == npartitions - 1 else "$lt"
-        min_id, max_id = normalize_object_id_pair(partition["_id"]["min"], partition["_id"]["max"])
-        chunk_filters.append({"_id": {"$gte": min_id, lt_key: max_id}})
+        # As the type of the "_id" field is not consistent throughout the database, for
+        # each bound we have to allow comparison with all possible types. So what we do
+        # below is to get chunk_filter = (_id > lower bound for one type at least) and
+        # (_id <(=) upper bound for one type at least).
+        or_operator = lambda f1, f2: f1 | f2
+
+        min_id = partition["_id"]["min"]
+        all_types_min_id = get_all_types_mongo_id(min_id)
+        min_id_f = reduce(or_operator, map(greater_fun, all_types_min_id))
+
+        max_id = partition["_id"]["max"]
+        all_types_max_id = get_all_types_mongo_id(max_id)
+        if i == npartitions - 1:
+            less_fun = lambda id: qr.Filter().less_or_equals("_id", id)
+        max_id_f = reduce(or_operator, map(less_fun, all_types_max_id))
+
+        chunk_filters.append(min_id_f & max_id_f)
 
     return chunk_filters
