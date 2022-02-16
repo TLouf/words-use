@@ -34,7 +34,7 @@ def count_bw(cell_counts, cells_index, ordered_neighbors, count_th):
     nn_token_sums = cell_token_sums.values[ordered_neighbors]
     nn_bw_mask = nn_token_sums.cumsum(axis=1) < count_th
     last_nn_in_bw = nn_bw_mask.argmin(axis=1)
-    print(last_nn_in_bw.min(), last_nn_in_bw.max())
+    print('min-max number of neighbors in bandwidh:', last_nn_in_bw.min(), last_nn_in_bw.max())
     nr_cells = nn_bw_mask.shape[0]
     col_nr = np.tile(np.arange(nr_cells), (nr_cells, 1))
     nn_bw_mask = ~(col_nr.T <= last_nn_in_bw).T
@@ -42,9 +42,10 @@ def count_bw(cell_counts, cells_index, ordered_neighbors, count_th):
 
 
 def calc_kernel_weights(nn_ordered_d, nn_bw_mask, nn_token_sums,
-                        wdist_fun=gaussian, **wdist_fun_kwargs):
-    # token_weights = (nn_token_sums.T / nn_token_sums[:, 0]).T
-    token_weights = nn_token_sums
+                        wdist_fun=None, **wdist_fun_kwargs):
+    if wdist_fun is None:
+        wdist_fun = gaussian
+    token_weights = (nn_token_sums.T / nn_token_sums.sum(axis=1)).T
     nn_bw_d = np.ma.masked_array(nn_ordered_d, nn_bw_mask)
     # TODO: kwarg for norm kind?
     max_d_in_bw = nn_bw_d.max(axis=1)
@@ -68,18 +69,25 @@ def get_max_rank(cell_counts_mat, ordered_weights, presence_th=1):
     return max_rank
 
 
-def get_smoothed_counts(cell_counts, cells_index, ordered_neighbors, nn_weights,
-                        presence_th=1):
+def get_smoothed_counts(cell_counts, cells_index, ordered_neighbors, nn_weights):
+    '''
+    From the multiindex Series `cell_counts` giving the word counts by cell,
+    return the sparse matrix `cell_counts_mat` of the shape nr_cells x nr_words,
+    which has smoothed counts based on `nn_weights`.
+    '''
     # cells_index must be sorted
-    empty_cells = cells_index.difference(cell_counts.index.levels[1])
+    i_cell_id = cell_counts.index.names.index('cell_id')
+    empty_cells = cells_index.difference(cell_counts.index.levels[i_cell_id])
     codes = cell_counts.index.codes
     values = cell_counts['count'].values
 
     # We copy to unfreeze and be able to increment below.
-    i = codes[cell_counts.index.names.index('cell_id')].copy()
+    i = codes[i_cell_id].copy()
     j = codes[cell_counts.index.names.index('word')]
     ssrt = np.searchsorted(cells_index, empty_cells)
-    # For every missing cell we must add a column full of zeros to the sparse matrix, so we must increment the column indices of its non-zero values accordingly:
+    # For every missing cell we must add a row full of zeros to the sparse
+    # matrix, so we must increment the row indices of its non-zero values
+    # accordingly:
     for k, s in enumerate(ssrt):
         i[i >= s] += 1
     # We don't provide shape, because even if there's missing data in some
@@ -97,5 +105,4 @@ def get_smoothed_counts(cell_counts, cells_index, ordered_neighbors, nn_weights,
     # max_rank = get_max_rank(cell_counts_mat, ordered_weights, presence_th=presence_th)
     print('multiplying...')
     cell_counts_mat = ordered_weights.dot(cell_counts_mat)
-    max_rank = (cell_counts_mat >= presence_th).sum(axis=1).min()
-    return cell_counts_mat, max_rank
+    return cell_counts_mat

@@ -164,6 +164,8 @@ def get_cell_word_counts(tweets_df, cells_geodf, places_geodf, cells_in_places,
     #                                   .groupby(['place_id', 'word'])
     #                                   .size()
     #                                   .rename('count'))
+    print(f'{tweets_bbox_df.shape[0]} tweets with bbox places and '
+          f'{tweets_pts_df.shape[0]} tweets with coords remaining after text cleaning.')
 
     intersect_counts = (places_counts_df.to_frame()
                                         .join(cells_in_places, how='inner'))
@@ -262,8 +264,16 @@ def agg_by_lower(raw_cell_counts):
     return cell_counts
 
 
-def filter_cell_counts(raw_cell_counts, reg_counts, upper_th=1.1, sum_th=1e4,
-                       cell_tokens_decade_crit=None, min_nr_cells=0):
+def calc_first_word_masks(reg_counts, upper_th=1, min_nr_cells=0):
+    upper_mask = reg_counts['count_upper'] / reg_counts['count'] > upper_th
+    reg_counts['is_proper'] = upper_mask
+    nr_cell_mask = reg_counts['nr_cells'] >= min_nr_cells
+    reg_counts['nr_cell_mask'] = nr_cell_mask
+    return reg_counts
+
+
+def filter_cell_counts(raw_cell_counts, masks, sum_th=1e4,
+                       cell_tokens_decade_crit=None):
     '''
     Filter out rows in cell counts based on multiple criteria. It first filters
     out words considered as proper nouns as they were capitalized more than
@@ -274,11 +284,6 @@ def filter_cell_counts(raw_cell_counts, reg_counts, upper_th=1.1, sum_th=1e4,
     at all.
     '''
     total_nr_tokens = raw_cell_counts['count'].sum()
-    upper_mask = reg_counts['count_upper'] / reg_counts['count'] > upper_th
-    reg_counts['is_proper'] = upper_mask
-    nr_cell_mask = reg_counts['nr_cells'] >= min_nr_cells
-    reg_counts['nr_cell_mask'] = nr_cell_mask
-    masks = [~upper_mask, nr_cell_mask]
     cell_counts = filter_part_multidx(raw_cell_counts, masks)
 
     cell_sum = cell_counts.groupby('cell_id')['count'].sum()
@@ -296,7 +301,7 @@ def filter_cell_counts(raw_cell_counts, reg_counts, upper_th=1.1, sum_th=1e4,
     rel_diff = (total_nr_tokens - filtered_nr_tokens) / total_nr_tokens
     print(f'We had {total_nr_tokens:.0f} tokens, and filtering brought it down',
           f'to {filtered_nr_tokens:.0f}, so we lost {100*rel_diff:.3g}%.')
-    return cell_counts, reg_counts
+    return cell_counts
 
 
 def filter_part_multidx(cell_counts, masks):
@@ -308,7 +313,7 @@ def filter_part_multidx(cell_counts, masks):
     filtered_counts = cell_counts.copy()
     for m in masks:
         m_series = m.loc[m].rename('col_to_remove')
-            filtered_counts = filtered_counts.join(m_series, how='inner')[cols]
+        filtered_counts = filtered_counts.join(m_series, how='inner')[cols]
     return filtered_counts
 
 
@@ -387,11 +392,50 @@ def rank_filter(cell_counts_mat, max_rank):
     word_idc = get_top_words_idc(data, indices, indptr, max_rank)
 
     word_counts_vectors = word_counts_vectors.toarray()[:, word_idc]
-    print(word_counts_vectors.shape, word_idc)
+    print(word_counts_vectors.shape) #, word_idc)
     return word_counts_vectors, word_idc
 
 
-def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='',
+def disordered_sparse_series_to_coo(raw_series, i_index, j_index):
+    '''
+    MultiIndex of `series` can be potentially partial, and the matrix' indices
+    should match the ones given in `i_index` and `j_index`, which may have
+    values which are not in the MultiIndex and not ordered the same way.
+    '''
+    masks = [pd.Series(True, index=idx) for idx in (j_index, i_index)]
+    series = filter_part_multidx(raw_series.to_frame(), masks)[raw_series.name]
+
+    series_iloc_i_level = series.index.names.index(i_index.name)
+    series_i_level = series.index.levels[series_iloc_i_level]
+    join_series = pd.Series(range(len(series_i_level)), index=series_i_level, name='cc_codes')
+    order_df = pd.DataFrame({'gc_codes': range(len(i_index))}, index=i_index)
+    # join on words and get corresponding code in global_counts' and
+    # cell_counts' indices.
+    order_df = order_df.join(join_series, how='left')
+    nr_missing_cells = order_df['cc_codes'].isnull().sum()
+    print(f"{nr_missing_cells} cells were not found in cell_counts.")
+    i_order = order_df.sort_values(by='cc_codes')['gc_codes'].values
+    i = i_order[series.index.codes[series_iloc_i_level]]
+    
+    lvl_j_index = series.index.names.index(j_index.name)
+    series_j_level = series.index.levels[lvl_j_index]
+    join_series = pd.Series(range(len(series_j_level)), index=series_j_level, name='cc_codes')
+    order_df = pd.DataFrame({'gc_codes': range(len(j_index))}, index=j_index)
+    order_df = order_df.join(join_series, how='left')
+    nr_missing_words = order_df['cc_codes'].isnull().sum()
+    print(f"{nr_missing_words} words were not found in cell_counts.")
+    j_order = order_df.sort_values(by='cc_codes')['gc_codes'].values
+    j = j_order[series.index.codes[lvl_j_index]]
+
+    values = series.values
+
+    sparse_mat = scipy.sparse.coo_matrix(
+        (values, (i, j)), shape=(len(i_index), len(j_index))
+    )
+    return sparse_mat
+
+
+def vec_to_metric(word_counts_vectors, whole_reg_counts, word_vec_var='',
                   cell_sums=None, global_sum=None, w=None):
     '''
     Transforms `word_vectors`, the matrix of cell counts obtained with
@@ -399,6 +443,7 @@ def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='',
     `word_vec_var`, if given. If not, or if it does not match one of the
     implemented metrics, return the  proportions.
     '''
+    reg_counts = whole_reg_counts.loc[whole_reg_counts['cell_counts_mask']]
     if global_sum is None:
         global_sum = reg_counts['count'].sum()
 
@@ -440,7 +485,7 @@ def vec_to_metric(word_counts_vectors, reg_counts, word_vec_var='',
 
 
 _WORD_COUNTS_VEC_ATTR = [
-    'token_th', 'presence_th', 'max_global_rank',
+    'nr_tokens_bw', 'presence_th', 'max_word_rank',
     'smooth_wdist_fun', 'smooth_wdist_fun_kwargs'
 ]
 class WordCountsVectors(np.ndarray):
@@ -451,9 +496,9 @@ class WordCountsVectors(np.ndarray):
         cls,
         input_array: np.ndarray,
         cell_sums: np.ndarray | None = None,
-        token_th: float | None = None,
+        nr_tokens_bw: float | None = None,
         presence_th: float | None = None,
-        max_global_rank: float | None = None,
+        max_word_rank: float | None = None,
         smooth_wdist_fun: callable | None = None,
         smooth_wdist_fun_kwargs: dict | None = None,
     ):
@@ -462,9 +507,9 @@ class WordCountsVectors(np.ndarray):
         obj = np.asarray(input_array).view(cls)
         # add the new attribute to the created instance
         obj.cell_sums = cell_sums
-        obj.token_th = token_th
+        obj.nr_tokens_bw = nr_tokens_bw
         obj.presence_th = presence_th
-        obj.max_global_rank = max_global_rank
+        obj.max_word_rank = max_word_rank
         obj.smooth_wdist_fun = smooth_wdist_fun
         if smooth_wdist_fun_kwargs is None:
             smooth_wdist_fun_kwargs = {}
@@ -481,53 +526,92 @@ class WordCountsVectors(np.ndarray):
 
 
     @classmethod
-    def from_lang(cls, lang, **init_kwargs):
+    def from_lang(cls, lang, word_mask_col=None, **init_kwargs):
         cell_counts = lang.get_cell_counts()
+        global_counts = lang.global_counts
+        cell_sums = init_kwargs.get('cell_sums')
 
-        if init_kwargs.get('token_th') is not None:
-            ordered_neighbors, nn_ordered_d = smooth.order_nn(lang.cells_geodf)
-            cells_index = lang.cells_geodf.index.sort_values()
+        if init_kwargs.get('nr_tokens_bw') is not None:
+            cells_index = lang.relevant_cells
+            ordered_neighbors, nn_ordered_d = smooth.order_nn(
+                lang.cells_geodf.loc[cells_index]
+            )
             nn_token_sums, nn_bw_mask = smooth.count_bw(
-                cell_counts, cells_index, ordered_neighbors, init_kwargs.get('token_th'))
+                cell_counts, cells_index, ordered_neighbors, init_kwargs.get('nr_tokens_bw')
+            )
+            wdist_fun = init_kwargs.get('smooth_wdist_fun')
+            wdist_fun_kwargs = init_kwargs.get('smooth_wdist_fun_kwargs', {})
             nn_weights = smooth.calc_kernel_weights(
                 nn_ordered_d, nn_bw_mask, nn_token_sums,
-                wdist_fun=init_kwargs['smooth_wdist_fun'],
-                **init_kwargs['smooth_wdist_fun_kwargs'])
-            cell_counts_mat, max_rank = smooth.get_smoothed_counts(
+                wdist_fun=wdist_fun, **wdist_fun_kwargs
+            )
+            cell_counts_mat = smooth.get_smoothed_counts(
                 cell_counts, cells_index, ordered_neighbors, nn_weights,
-                presence_th=init_kwargs.get('presence_th'))
+            )
+            # cell_counts_mat is nr_cells x nr_words, both taken from
+            # cell_counts (so there may be fewer words than in global_counts,
+            # and they are ordered alphabetically).
+            presence_th = init_kwargs.get('presence_th', 1)
+            max_rank = (cell_counts_mat >= presence_th).sum(axis=1).min()
             print(f'done, max_rank: {max_rank}')
+            # if cell_sums is None:
             cell_sums = np.asarray(cell_counts_mat.sum(axis=1)).flatten()
 
             word_counts_vectors, word_idc = rank_filter(
-                cell_counts_mat, max_rank)
-
-            ordered_words = lang.global_counts.index.argsort()
-            lang.global_counts['tail_mask'] = False
-            col_idc = lang.global_counts.columns.get_loc('tail_mask')
+                cell_counts_mat, max_rank
+            )
+            print(word_idc)
+            # join_series = pd.Series(0, name='tmp', index=word_idx)
+            ordered_words = global_counts.loc[global_counts['cell_counts_mask']].index.argsort()
+            # global_counts['cell_counts_mask'] = False
             ordered_words_in_mat = ordered_words[word_idc]
-            th_idx = (lang.global_counts['count'] > 1e4).argmin()
-            rows_to_keep = ordered_words_in_mat[ordered_words_in_mat < th_idx]
-            lang.global_counts.iloc[rows_to_keep, col_idc] = True
+            # TODO: parametrise this 1e4
+            # th_idx = (global_counts['count'] > 1e4).argmin()
+            # rows_to_keep = ordered_words_in_mat[ordered_words_in_mat < th_idx]
+            # # join_series = pd.Series(True, name='cell_counts_mask', index=word_idx)
+            global_counts['cell_counts_mask'] = False
+            col_idc = global_counts.columns.get_loc('cell_counts_mask')
+            global_counts.iloc[ordered_words_in_mat, col_idc] = True
+            # # global_counts = global_counts.join(join_series).fillna(False)
 
             # Reorder cols of word_counts_vectors to match ordering of
-            # lang.global_counts.
+            # global_counts.
             idx_to_reorder = ordered_words_in_mat.argsort()
-            nr_keep = (ordered_words_in_mat < th_idx).sum()
+            # nr_keep = (ordered_words_in_mat < th_idx).sum()
+            # # nr_keep = global_counts['cell_counts_mask'].sum()
             word_counts_vectors = word_counts_vectors[:, idx_to_reorder]
-            word_counts_vectors = word_counts_vectors[:, :nr_keep]
+            # word_counts_vectors = word_counts_vectors[:, :nr_keep]
             array = word_counts_vectors
 
-        else:
-            lang.global_counts['tail_mask'] = False
-            col = lang.global_counts.columns.get_loc('tail_mask')
-            rows = np.arange(init_kwargs['max_global_rank'], dtype=int)
-            lang.global_counts.iloc[rows, col] = True
-            cell_sums = cell_counts.groupby('cell_id')['count'].sum().values
-            array = to_vectors(
-                cell_counts, lang.global_counts['tail_mask'])
+        elif word_mask_col is not None:
+            array = disordered_sparse_series_to_coo(
+                cell_counts['count'],
+                lang.relevant_cells,
+                global_counts.loc[global_counts[word_mask_col]].index
+            ).toarray()
 
-        return cls(array, cell_sums=cell_sums, **init_kwargs)
+        else:
+            # TODO: deprecate
+            global_counts['cell_counts_mask'] = False
+            col = global_counts.columns.get_loc('cell_counts_mask')
+            max_word_rank = int(init_kwargs['max_word_rank'])
+            global_counts.iloc[:max_word_rank, col] = True
+            array = disordered_sparse_series_to_coo(
+                cell_counts['count'],
+                lang.relevant_cells,
+                global_counts.loc[global_counts['cell_counts_mask']].index
+            ).toarray()
+
+        
+        if cell_sums is None:
+            cell_sums = (
+                cell_counts.groupby('cell_id')['count']
+                            .sum()
+                            .reindex(lang.relevant_cells, fill_value=0)
+                            .values
+            )
+        init_kwargs['cell_sums'] = cell_sums
+        return cls(array, **init_kwargs)
 
 
     def to_dict(self):
@@ -572,13 +656,12 @@ class WordVectors(np.ndarray):
 
 
     @classmethod
-    def from_lang(cls, lang, mask_col='tail_mask', **init_kwargs):
+    def from_lang(cls, lang, mask_col='cell_counts_mask', **init_kwargs):
         word_counts_vectors = lang.word_counts_vectors
-        tail_mask = lang.global_counts[mask_col]
 
         kwargs = {
-            'word_vec_var': init_kwargs.get('word_vec_var'),
-                  'cell_sums': word_counts_vectors.cell_sums,
+            'word_vec_var': init_kwargs.get('word_vec_var', ''),
+            'cell_sums': word_counts_vectors.cell_sums,
             'global_sum': lang.global_counts['count'].sum()
         }
 
@@ -590,7 +673,7 @@ class WordVectors(np.ndarray):
 
         array = vec_to_metric(
             word_counts_vectors,
-            lang.global_counts.loc[tail_mask],
+            lang.global_counts.loc[lang.global_counts[mask_col]],
             **kwargs
         )
 
@@ -606,16 +689,21 @@ class WordVectors(np.ndarray):
 
 
     def filter(self, lang):
-        tail_mask = lang.global_counts['tail_mask']
+        cell_counts_mask = lang.global_counts['cell_counts_mask']
 
-        if self.var_th is None:
+        if self.var_th is None and self.z_th is None and self.p_th is None:
+            lang.global_counts['is_regional'] = cell_counts_mask
+            return self
+
+        elif self.var_th is None:
             # assumes moran has been done
             is_regional = (
                 (lang.global_counts['z_value'] > self.z_th)
                 & (lang.global_counts['p_value'] < self.p_th)
             )
+
         else:
-            mask_index = tail_mask.loc[tail_mask].index
+            mask_index = cell_counts_mask.loc[cell_counts_mask].index
             var = self.var(axis=0)
             mean = self.mean(axis=0)
             mask_values = var > self.var_th
@@ -631,7 +719,7 @@ class WordVectors(np.ndarray):
         lang.global_counts = lang.global_counts.join(is_regional)
         lang.global_counts['is_regional'] = (
             lang.global_counts['is_regional'].fillna(False))
-        mask = lang.global_counts['is_regional'].loc[tail_mask].values
+        mask = lang.global_counts['is_regional'].loc[cell_counts_mask].values
         self = self[:, mask].copy()
         nr_kept = self.shape[1]
         print(f'Keeping {nr_kept} words out of {mask.shape[0]}')

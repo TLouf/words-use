@@ -4,6 +4,7 @@ import re
 import json
 import pickle
 import inspect
+import copy
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
 from tqdm.auto import tqdm
@@ -317,13 +318,70 @@ class Language:
         return self.global_counts
 
 
-    def filter_global_counts(self):
-        self.global_counts = self.get_global_counts()
-        proper_mask = self.global_counts['is_proper'] == 0
-        nr_cells_mask = self.global_counts['nr_cells'] >= self.min_nr_cells
-        self.words_prior_mask = proper_mask & nr_cells_mask
-        self.global_counts = self.global_counts.loc[self.words_prior_mask]
-        return self.global_counts
+    def filter_global_counts(self, mask=None, invert=False, filter_col=None):
+        global_counts = self.get_global_counts()
+
+        if mask is None:
+            proper_mask = global_counts['is_proper'] == 0
+            nr_cells_mask = global_counts['nr_cells'] >= self.min_nr_cells
+            words_mask = proper_mask & nr_cells_mask
+        elif isinstance(mask, pd.Series):
+            words_mask = mask
+        elif isinstance(mask, pd.Index):
+            words_mask = pd.Series(False, index=global_counts.index)
+            intersect_index = global_counts.index.intersection(mask)
+            words_mask.loc[intersect_index] = True
+        else:
+            raise TypeError('mask is of wrong type')
+
+        if invert:
+            # useful when wish to exclude words in an Index given by `mask`.
+            words_mask = ~words_mask
+
+        # TODO: filter_col useful?
+        if filter_col is None:
+            self.words_prior_mask = words_mask
+            global_counts = global_counts.loc[self.words_prior_mask].copy()
+            if self.max_word_rank is not None:
+                self.max_word_rank = (
+                    words_mask.values
+                    & (words_mask.reset_index().index < self.max_word_rank)
+                ).sum()
+
+        else:
+            global_counts[filter_col] = words_mask
+
+        self.global_counts = global_counts
+        return global_counts
+
+
+    def make_cell_counts_mask(self, mask=None, invert=False):
+        '''
+        Have this mask to select words from `raw_cell_counts` to keep in
+        `cell_counts`, while not deleting anything from `global_counts`, as
+        opposed to how `filter_global_counts` works.
+        '''
+        # mask appplided to raw_cell_counts to get cell_counts
+        self.global_counts['cell_counts_mask'] = False
+        col = self.global_counts.columns.get_loc('cell_counts_mask')
+        self.global_counts.iloc[:self.max_word_rank, col] = True
+        word_tokens_mask = self.global_counts['count'] < self.word_tokens_th
+        self.global_counts.loc[word_tokens_mask, 'cell_counts_mask'] = False
+        if mask is not None:
+            if isinstance(mask, pd.Series):
+                words_mask = mask
+            elif isinstance(mask, pd.Index):
+                words_mask = pd.Series(False, index=self.global_counts.index)
+                intersect_index = self.global_counts.index.intersection(mask)
+                words_mask.loc[intersect_index] = True
+
+            if invert:
+                # Useful when wish to exclude words in an Index
+                words_mask = ~words_mask
+
+            self.global_counts['cell_counts_mask'] = (
+                self.global_counts['cell_counts_mask'] & words_mask
+            )
 
 
     def get_raw_cell_counts(self):
@@ -343,18 +401,21 @@ class Language:
 
     def get_cell_counts(self):
         if self.cell_counts is None:
-            self.raw_cell_counts = self.get_raw_cell_counts()
-            total_nr_tokens = self.raw_cell_counts['count'].sum()
+            raw_cell_counts = self.get_raw_cell_counts()
+            total_nr_tokens = raw_cell_counts['count'].sum()
             if self.words_prior_mask is None:
                 _ = self.filter_global_counts()
+            if 'cell_counts_mask' not in self.global_counts.columns:
+                self.make_cell_counts_mask()
             cell_counts = word_counts.filter_part_multidx(
-                self.raw_cell_counts, [self.words_prior_mask])
+                raw_cell_counts, [self.global_counts['cell_counts_mask']]
+            )
 
             # Reindex to have all cells (useful when self.cell_tokens_th == 0).
-            cell_sum = (cell_counts.groupby('cell_id')['count']
-                                   .sum()
-                                   .reindex(self.cells_geodf.index)
-                                   .fillna(0))
+            cell_sum = (raw_cell_counts.groupby('cell_id')['count']
+                                       .sum()
+                                       .reindex(self.cells_geodf.index)
+                                       .fillna(0))
             sum_th = self.cell_tokens_th
             cell_is_relevant = cell_sum >= sum_th
             self.relevant_cells = cell_is_relevant.loc[cell_is_relevant].index
@@ -438,8 +499,17 @@ class Language:
 
 
     def get_word_counts_vectors(self, **kwargs):
+        word_mask_col = kwargs.get('word_mask_col')
+        if word_mask_col is not None:
+            if kwargs.get('cell_sums') is None:
+                cell_sums = (self.raw_cell_counts.groupby('cell_id')['count']
+                                                 .sum()
+                                                 .reindex(self.relevant_cells)
+                                                 .fillna(0)
+                                                 .values)
+                kwargs['cell_sums'] = cell_sums
+
         if self.word_counts_vectors is None:
-            # self.word_counts_vectors = word_counts.WordCountsVectors(**kwargs).calc(self)
             self.word_counts_vectors = word_counts.WordCountsVectors.from_lang(self, **kwargs)
         return self.word_counts_vectors
 
@@ -454,7 +524,6 @@ class Language:
 
     def get_word_vectors(self, **kwargs):
         if self.word_vectors is None:
-            # self.word_vectors = word_counts.WordVectors(**kwargs).calc(self)
             self.word_vectors = word_counts.WordVectors.from_lang(self, **kwargs)
         return self.word_vectors
 
@@ -483,8 +552,8 @@ class Language:
             for key, value in m_dict.items():
                 moran_dict[key].extend(value)
         ray.shutdown()
-        tail_mask = self.global_counts['tail_mask']
-        words = self.global_counts.loc[tail_mask].index[:num_morans]
+        cell_counts_mask = self.global_counts['cell_counts_mask']
+        words = self.global_counts.loc[cell_counts_mask].index[:num_morans]
         moran_df = pd.DataFrame.from_dict(moran_dict).set_index(words)
         self.global_counts = self.global_counts.join(moran_df)
         return self.global_counts
@@ -499,29 +568,68 @@ class Language:
         self.word_vectors = word_vectors
 
 
-    def make_decomposition(self, **kwargs):
-        word_mask = (self.global_counts['is_regional']
-                     & self.global_counts['tail_mask']).values
+    def make_decomposition(self, from_other: Language | None = None, **kwargs):
+        word_mask = self.global_counts['cell_counts_mask']
         word_vectors = self.word_vectors
-        pca = PCA(**kwargs).fit(word_vectors)
+        if from_other is None:
+            pca = PCA(**kwargs).fit(word_vectors)
 
-        if kwargs.get('n_components') is None:
-            # If number of components is not specified, select them using the
-            # broken stick rule.
-            var_pca = pca.explained_variance_ratio_
-            var_broken_stick = data_clustering.broken_stick(pca.n_components_)
-            # We keep components until they don't explain more than what would
-            # be expected from a random partition of the variance into
-            # `n_components_`.
-            n_components = np.argmin(var_pca > var_broken_stick) - 1
-            pca.n_components_ = n_components
-            pca.components_ = pca.components_[:n_components]
-            pca.explained_variance_ = pca.explained_variance_[:n_components]
-            pca.explained_variance_ratio_ = (
-                pca.explained_variance_ratio_[:n_components]
+            if kwargs.get('n_components') is None:
+                # If number of components is not specified, select them using the
+                # broken stick rule.
+                var_pca = pca.explained_variance_ratio_
+                var_broken_stick = data_clustering.broken_stick(word_vectors.shape[1])
+                # We keep components until they don't explain more than what would be
+                # expected from a random partition of the variance into a number of
+                # parts equal to the number of words.
+                size = min(*word_vectors.shape)
+                n_components = np.argmin(var_pca[:size] > var_broken_stick[:size]) - 1
+                print(n_components)
+                pca = data_clustering.select_components(pca, n_components)
+                print(pca.n_components_)
+        else:
+            # recalculate everyhting or adapt/mask?
+            other_decomp = from_other.decompositions[-1]
+            pca = copy.deepcopy(other_decomp.decomposition)
+            other_word_mask = from_other.global_counts['cell_counts_mask'].rename('other_word_mask')
+            iloc = np.arange(word_mask.shape[0])
+            joined_masks = (
+                other_word_mask.to_frame()
+                 .join(word_mask.to_frame().assign(iloc=iloc), how='left')
+                 .fillna({'cell_counts_mask': False, 'other_word_mask': False}))
+            joined_masks['comb'] = (
+                joined_masks['cell_counts_mask'] & joined_masks['other_word_mask']
             )
-            pca.singular_values_ = pca.singular_values_[:n_components]
+            word_mask = joined_masks['comb'].rename('cell_counts_mask')
+            joined_masks = joined_masks.reset_index()
+
+            # other_relevant_cells = from_other.relevant_cells
+            # TODO: solve word shape mismatch
+            # select_idc = (joined_masks.loc[joined_masks['cell_counts_mask'], 'iloc']
+            select_idc = (joined_masks.loc[joined_masks['comb'], 'iloc']
+                          .sort_values()
+                          .values
+                          .astype(int))
+            # select_idc = (joined_masks.loc[joined_masks['cell_counts_mask']]
+                        #   .sort_values(by='iloc')['iloc'])
+            # word_vectors = word_vectors[cell_mask, word_mask]
+            word_vectors = word_vectors[:, select_idc]
+
+            idc_word_mask = joined_masks.loc[joined_masks['other_word_mask'], 'comb']
+            pca.components_ = pca.components_[:, idc_word_mask.values]
+            # double argsort() to keep order but cast from whatever range of
+            # values to 0...n, with n  the length of the array.
+            reorder_idc = joined_masks.loc[joined_masks['comb'], 'iloc'].values.astype(int).argsort().argsort()
+            n_features = reorder_idc.shape[0]
+            # reorder_idc = np.arange(n_features)
+            pca.components_ = pca.components_[:, reorder_idc]
+            pca.n_features_ = n_features
+            pca.n_features_in_ = n_features
+            pca.mean_ = np.mean(word_vectors, axis=0)
+
+        print(word_vectors.shape)
         proj_vectors = pca.transform(word_vectors)
+        print(proj_vectors.shape)
         decomposition = data_clustering.Decomposition(
             self.word_counts_vectors, word_vectors, pca, proj_vectors, word_mask,
         )
@@ -575,12 +683,12 @@ class Language:
                 col
                 for col in clust_words.columns
                 if col.startswith('cluster') and col != f'cluster{lbl}'
-                ]
+            ]
             # Dist to closest cluster for every word.
             clust_words[f'dist{lbl}'] = np.min(
                 [
-                (clust_words[f'cluster{lbl}'] - clust_words[col]).values**2
-                for col in other_clust_cols
+                    (clust_words[f'cluster{lbl}'] - clust_words[col]).values**2
+                    for col in other_clust_cols
                 ],
                 axis=0
             )
