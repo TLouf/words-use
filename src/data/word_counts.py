@@ -73,34 +73,39 @@ def get_cell_of_pt_tweets(
     if tweets_pts_df.shape[0] > 0:
         pt_is_gps = tweets_pts_df['pt_is_gps']
         tweets_pts_df['geometry'] = None
+
         # Tweets with POI place:
         pois_cells = geopd.sjoin(
             poi_places_geodf, cells_geodf,
             predicate='within', rsuffix='cell', how='inner')
         tweets_pts_df.loc[~pt_is_gps, 'cell_id'] = (
             tweets_pts_df.loc[~pt_is_gps]
-                        .join(pois_cells['cell_id'],
-                            on='place_id', how='inner')['cell_id'])
-        # Tweets with GPS coordinates:
-        sample_coord = tweets_pts_df.loc[pt_is_gps, 'coordinates'].iloc[0]
-        if isinstance(sample_coord, list):
-            make_pt_fun = Point
-        elif isinstance(sample_coord, dict) and 'coordinates' in sample_coord:
-            make_pt_fun = lambda x: Point(x['coordinates'])
-        else:
-            raise ValueError('Wrong coordinates column')
+                         .join(pois_cells['cell_id'],
+                               on='place_id', how='inner')['cell_id'])
 
-        pt_geoms = tweets_pts_df.loc[pt_is_gps, 'coordinates'].apply(make_pt_fun)
-        tweets_gps_geo = geopd.GeoDataFrame(geometry=pt_geoms, crs=latlon_proj)
-        tweets_gps_geo = tweets_gps_geo.to_crs(cells_geodf.crs)
-        tweets_gps_cells = geopd.sjoin(
-            tweets_gps_geo, cells_geodf[['geometry']],
-            predicate='within', rsuffix='cell', how='inner'
-        )['index_cell']
-        tweets_pts_df.loc[pt_is_gps, 'cell_id'] = tweets_gps_cells
+        # Tweets with GPS coordinates:
+        if pt_is_gps.any():
+            sample_coord = tweets_pts_df.loc[pt_is_gps, 'coordinates'].iloc[0]
+            if isinstance(sample_coord, list):
+                make_pt_fun = Point
+            elif isinstance(sample_coord, dict) and 'coordinates' in sample_coord:
+                make_pt_fun = lambda x: Point(x['coordinates'])
+            else:
+                raise ValueError('Wrong coordinates column')
+
+            pt_geoms = tweets_pts_df.loc[pt_is_gps, 'coordinates'].apply(make_pt_fun)
+            tweets_gps_geo = geopd.GeoDataFrame(geometry=pt_geoms, crs=latlon_proj)
+            tweets_gps_geo = tweets_gps_geo.to_crs(cells_geodf.crs)
+            tweets_gps_cells = geopd.sjoin(
+                tweets_gps_geo, cells_geodf[['geometry']],
+                predicate='within', rsuffix='cell', how='inner'
+            )['index_cell']
+            tweets_pts_df.loc[pt_is_gps, 'cell_id'] = tweets_gps_cells
+
     else:
         cols = tweets_pts_df.columns.tolist() + ['geometry', 'cell_id']
         tweets_pts_df = pd.DataFrame(columns=cols)
+
     return tweets_pts_df
 
 
