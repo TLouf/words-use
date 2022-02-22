@@ -8,6 +8,7 @@ import copy
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict
 from tqdm.auto import tqdm
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import geopandas as geopd
@@ -704,7 +705,8 @@ class Language:
 
     def map_continuous_choro(
         self, z_plot, normed_bboxes: bool | np.ndarray = True,
-        total_width=178, total_height=None, axes=None, cax=None, **choro_kwargs
+        total_width=178, total_height=None, axes=None, cax=None,
+        cbar_kwargs=None, **choro_kwargs
     ):
         if normed_bboxes is True:
             # calculate optimal position
@@ -714,41 +716,42 @@ class Language:
 
         if axes is None:
             figsize = (total_width/10/2.54, total_height/10/2.54)
-            _, axes = plt.subplots(len(regions) + 1, figsize=figsize)
+            _, axes = plt.subplots(len(self.regions) + 1, figsize=figsize)
             cax = axes[-1]
             axes = axes[:-1]
         
         plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
 
         fig, axes = map_viz.choropleth(
-            plot_series, self.regions, axes=axes, cax=cax, **choro_kwargs
+            plot_series, self.regions, axes=axes, cax=cax,
+            cbar_kwargs=cbar_kwargs, **choro_kwargs
         )
 
         # if normed_bboxes set to False, don't position the axes
-        if normed_bboxes:
-            for ax, bbox in zip(axes, normed_bboxes):
+        if not normed_bboxes is False:
+            for ax, bbox in zip(np.append(axes, cax), normed_bboxes):
                 ax.set_position(bbox)
 
         return fig, axes
 
 
-    def map_word(self, word, vcenter=0, vmin=None, vmax=None, cmap='bwr', **plot_kwargs):
+    def map_word(self, word, vcenter=0, vmin=None, vmax=None, cmap='bwr',
+                 cbar_kwargs=None, **plot_kwargs):
         cbar_label = f'{self.word_vectors.word_vec_var} of {word}'
-        # assumes moran has been done
         is_regional = self.global_counts['is_regional']
         word_idx = self.global_counts.loc[is_regional].index.get_loc(word)
         z_plot = self.word_vectors[:, word_idx]
 
         fig, axes = self.map_continuous_choro(
             z_plot, cmap=cmap, vcenter=vcenter, vmin=vmin, vmax=vmax,
-            cbar_label=cbar_label, **plot_kwargs
+            cbar_label=cbar_label, cbar_kwargs=cbar_kwargs, **plot_kwargs
         )
         return fig, axes
 
 
     def map_comp(self, i_decompo=-1, comps=None, cmap='bwr',
                  total_width=178, total_height=None, save_path_fmt='',
-                 normed_bboxes=True, **plot_kwargs):
+                 normed_bboxes=True, cbar_kwargs=None, **plot_kwargs):
         if normed_bboxes is True:
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
                 total_width, total_height=total_height, ratio_lgd=1/10
@@ -771,7 +774,7 @@ class Language:
             _, _ = self.map_continuous_choro(
                 z_plot, normed_bboxes=normed_bboxes, total_width=total_width,
                 total_height=total_height, cmap=cmap, cbar_label=cbar_label,
-                vcenter=0, save_path=save_path, **plot_kwargs)
+                vcenter=0, save_path=save_path, cbar_kwargs=cbar_kwargs, **plot_kwargs)
 
 
     def map_clustering(self, i_decompo=-1, i_clust=-1, total_width=178,
