@@ -4,13 +4,15 @@ import numpy as np
 from sklearn.metrics import silhouette_samples, silhouette_score
 
 def silhouette(vectors, cluster_labels, metric='euclidean',
-               spacing_coeff=0.02, fig=None, ax=None, figsize=None, show=True,
+               spacing_coeff=0.02, ax=None, figsize=None, show=True,
                save_path=None):
     '''
     Silhouette plot of the clustering of `vectors` into `cluster_labels`.
     '''
     if ax is None:
-        fig, ax = plt.subplots(1, figsize=figsize)
+        fig, ax = plt.subplots(1)
+    fig = ax.get_figure()
+
     n_clusters = np.sum(np.unique(cluster_labels) >= 0)
     # Compute the silhouette scores for each sample
     sample_s_values = silhouette_samples(vectors, cluster_labels,
@@ -57,6 +59,24 @@ def silhouette(vectors, cluster_labels, metric='euclidean',
     ax.set_yticks([])
     ax.set_xlabel("Silhouette coefficient values")
     ax.set_ylabel("Cluster label")
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+    if show:
+        fig.show()
+    return fig, ax
+
+
+def clust_levels_scores(
+    nrs_clusters, scores, ylabel='score', ax=None, show=True, save_path=None
+):
+    if ax is None:
+        fig, ax = plt.subplots(1)
+    fig = ax.get_figure()
+
+    ax.plot(nrs_clusters, scores, marker='o', ls='--')
+    ax.set_xlabel('number of clusters')
+    ax.set_ylabel(ylabel)
+
     if save_path:
         fig.savefig(save_path, bbox_inches='tight')
     if show:
