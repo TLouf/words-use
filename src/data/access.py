@@ -8,6 +8,7 @@ compression, Parquet data files would be ideal.
 from __future__ import annotations
 from functools import reduce
 from math import ceil
+import datetime
 import zipfile
 import gzip
 import bz2
@@ -387,5 +388,33 @@ def chunk_filters_mongo(db, colls: str | list, filter, chunksize=1e6):
         max_id_f = reduce(or_operator, map(less_fun, all_types_max_id))
 
         chunk_filters.append(min_id_f & max_id_f)
+
+    return chunk_filters
+
+
+def dt_chunk_filters_mongo(db, colls: str | list, filter, start, end, chunksize=1e6):
+    '''
+    Returns a list of filters of datetime ranges that split the elements of collection
+    `coll` of MongoDB database `db` matching `filter` into chunks of equal time delta.
+    Has the advantage of being faster than `chunk_filters_mongo`, to the cost of having
+    chunks of unequal sizes.
+    '''
+    with qr.Connection(db) as con:
+        nrows = con[colls].count_entries(filter)
+        npartitions = int(ceil(nrows / chunksize))
+        LOGGER.info(
+            f'{nrows:.3e} tweets matching the filter in collection {colls} of '
+            f'DB {db}, dividing in {npartitions} chunks...'
+        )
+
+    dt_step = (end - start) / npartitions
+    dt_bounds = [start + i*dt_step for i in range(npartitions+1)]
+
+    chunk_filters = []
+    for i in range(npartitions):
+        f = qr.Filter()
+        f.greater_or_equals('created_at', dt_bounds[i])
+        f.less_than('created_at', dt_bounds[i+1])
+        chunk_filters.append(f)
 
     return chunk_filters
