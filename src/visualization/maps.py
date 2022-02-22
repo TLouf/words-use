@@ -1,63 +1,14 @@
 import colorsys
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import pandas as pd
 import rpack
 import src.utils.geometry as geo
-
-def basic(geodf, plot_series, fig=None, ax=None, **plot_kw):
-    plot_geodf = geodf.join(plot_series, how='inner')
-    if ax is None:
-        fig, ax = plt.subplots(1)
-    plot_geodf.to_crs('epsg:4326').plot(ax=ax, column=plot_series.name,
-                                        legend=True, **plot_kw)
-    ax.set_axis_off()
-    return fig, ax, plot_geodf
-
-
-def word_prop(word, global_words, valid_geos, word_vectors, geodf,
-              **basic_kwargs):
-    iloc_word = np.where(global_words['word'].values == word)[0][0]
-    proj_cells = pd.Series(word_vectors[:, iloc_word],
-                           index=valid_geos, name='plot')
-    return basic(geodf, proj_cells, **basic_kwargs)
-
-
-def clusters(geodf, cell_clusters, valid_cells, **plot_kw):
-    plot_series = pd.Series(cell_clusters + 1,
-                            name='hierarc', index=valid_cells)
-    return basic(geodf, plot_series, categorical=True, **plot_kw)
-
-
-def overlap_clusters(geodf, cluster_data, fig=None, ax=None, **plot_kw):
-    '''
-    Plot a cluster map with a legend.
-    '''
-    if ax is None:
-        fig, ax = plt.subplots(1)
-    plot_geodf = prep_cluster_plot(geodf, cluster_data)
-    unique_labels = sorted(plot_geodf['label'].unique())
-    if 'homeless' in unique_labels:
-        colors = gen_distinct_colors(len(unique_labels) - 1) + [(0.5, 0.5, 0.5)]
-    else:
-        colors = gen_distinct_colors(len(unique_labels))
-    for i, (_, data) in enumerate(plot_geodf.groupby('label')):
-        color = colors[i]
-        data.plot(color=color, ax=ax, **plot_kw)
-
-    handles = []
-    for c, l in zip(colors, unique_labels):
-        # The colours will correspond because groupby sorts by the column by
-        # which we group, and we sorted the unique labels.
-        handles.append(mlines.Line2D([], [], color=c, marker='o',
-                                     linestyle='None', markersize=6, label=l))
-    ax.legend(handles=handles)
-
-    ax.set_axis_off()
-    return fig, ax, plot_geodf
 
 
 def gen_distinct_colors(num_colors):
@@ -74,52 +25,16 @@ def gen_distinct_colors(num_colors):
     return colors
 
 
-def colored_pts_legend(container, label_color, marker='o', markersize=6,
-                       loc='upper right'):
+def colored_poly_legend(container, label_color, **lgd_kwargs):
     '''
     Adds to a legend with colored points to a `container`, which can be a plt ax
     or figure. The color of the points and their associated labels are given
     respectively as values and keys of the dict `label_color`.
     '''
-    handles = []
-    for l, c in label_color.items():
-        handles.append(mlines.Line2D([], [], color=c, marker=marker, label=l,
-                                     linestyle='None', markersize=markersize))
-    container.legend(handles=handles, loc=loc)
+    handles = [mpatches.Patch(color=c, label=l) for l, c in label_color.items()]
+    kwargs = {**{'handlelength': 1, 'handleheight': 1}, **lgd_kwargs}
+    container.legend(handles=handles, **kwargs)
     return container
-
-
-def prep_cluster_plot(geodf, cluster_data):
-    '''
-    Prepares the GeoDataFrame `geodf` to be passed to `overlap_clusters` or
-    `interactive.clusters`, by adding a column for the cluster labels, allowing
-    for overlapping clusters.
-    '''
-    valid_cells = geodf.index
-    if isinstance(cluster_data, np.ndarray):
-        cell_dict = {
-            cell_id: [clust]
-            for cell_id, clust in zip(valid_cells, cluster_data)}
-    elif isinstance(cluster_data, dict):
-        if len(cluster_data) == len(valid_cells):
-            cell_dict = dict(zip(valid_cells, cluster_data.values()))
-        else:
-            # translate dict cluster: [cells] to cell: [clusters]
-            cell_dict = {cell_id: [] for cell_id in valid_cells}
-            for cluster, cells in cluster_data.items():
-                for c in cells:
-                    cell_dict[valid_cells[c]].append(cluster)
-    else:
-        raise TypeError('''cluster_data must either be an array of cluster
-                        labels (as is the case for the result from hierarchical
-                        clustering), or a dictionary mapping clusters to a list
-                        of cells, or cells to a list of clusters''')
-
-    plot_geodf = geodf.join(pd.Series(cell_dict, name='clusters'), how='inner')
-    plot_geodf['label'] = (
-        plot_geodf['clusters'].apply(lambda x: '+'.join([str(c+1) for c in x])))
-    plot_geodf.loc[plot_geodf['label'] == '0', 'label'] = 'homeless'
-    return plot_geodf
 
 
 def get_width_ratios(geodf, cc_list, ratio_lgd=0.05, latlon_proj='epsg:4326'):
@@ -206,55 +121,15 @@ def position_axes(width_ratios, total_width, total_height=None, ratio_lgd=None):
     return normed_bboxes, (total_width, total_height)
 
 
-def joint_cc(geodf, cluster_data, data_dict, cmap=None, show=True,
-             **fig_kwargs):
-    '''
-    Plots cluster maps of different regions described in `data_dict`, with cells
-    given in `geodf`, and their associated clusters in `cluster_data`. Adds a
-    single legend for all the maps.
-    '''
-    fig, axes = plt.subplots(ncols=len(data_dict.keys()) + 1, **fig_kwargs)
-    plot_geodf = prep_cluster_plot(geodf, cluster_data)
-    unique_labels = sorted(plot_geodf['label'].unique())
-    nr_cats = len(unique_labels)
-    if cmap is None:
-        gen_colors_fun = gen_distinct_colors
-    else:
-        gen_colors_fun = lambda n: list(plt.get_cmap(cmap, n).colors)
-    if 'homeless' in unique_labels:
-        colors = gen_colors_fun(nr_cats - 1) + [(0.5, 0.5, 0.5, 1)]
-    else:
-        colors = gen_colors_fun(nr_cats)
-    label_color = dict(zip(unique_labels, colors))
-
-    for ax, (cc, reg_dict) in zip(axes[:-1], data_dict.items()):
-        xy_proj = reg_dict['xy_proj']
-        cc_idx = plot_geodf.index.str.startswith(cc)
-        cc_geodf = plot_geodf.loc[cc_idx].to_crs(xy_proj)
-        for lab, lab_geodf in cc_geodf.groupby('label'):
-            lab_geodf.plot(ax=ax, color=label_color[lab],) #, **plot_kw)
-        shape_df = reg_dict['shape_df'].to_crs(xy_proj)
-        shape_df.plot(ax=ax, color='none', edgecolor='black')
-        ax.set_axis_off()
-
-    cax = axes[-1]
-    handles = []
-    for l, c in label_color.items():
-        # The colours will correspond because groupby sorts by the column by
-        # which we group, and we sorted the unique labels.
-        handles.append(mlines.Line2D([], [], color=c, marker='o',
-                                     linestyle='None', markersize=6, label=l))
-    cax.legend(handles=handles)
-    cax.set_axis_off()
-    if show:
-        fig.show()
-    return fig, axes
-
-
 def cluster_level(
-    level, regions, figsize=None, cmap=None,
+    level, regions, figsize=None, cmap=None, show_lgd=True,
     save_path=None, show=True, fig=None, axes=None, **kwargs
 ):
+    '''
+    Plot a clustering level, with cells of the regions coloured according to the cluster
+    they belong to, shown in a legend. They are not drawn (left in white/transparent) if
+    no information is available on their belonging to a cluster.
+    '''
     if axes is None:
         fig, axes = plt.subplots(len(regions), figsize=figsize)
 
@@ -276,16 +151,20 @@ def cluster_level(
             )
 
         reg.shape_geodf.plot(
-            ax=ax, color='none', edgecolor='black', linewidth=0.5
+            ax=ax, color='none', edgecolor='black', linewidth=0.5,
         )
         ax.set_title(reg.readable)
         ax.set_axis_off()
 
     fig = ax.get_figure()
 
-    # The colours will correspond because groupby sorts by the column by
-    # which we group, and we sorted the unique labels.
-    fig = colored_pts_legend(fig, label_color, **kwargs.get('legend', {}))
+    if show_lgd:
+        lgd_container = ax if len(regions) == 1 else fig
+        lgd_kwargs = {**{'loc': 'center right'}, **kwargs.get('legend', {})}
+        # The colours will correspond because groupby sorts by the column by
+        # which we group, and we sorted the unique labels.
+        _ = colored_poly_legend(lgd_container, label_color, **lgd_kwargs)
+
     if show:
         fig.show()
     if save_path:
@@ -299,12 +178,20 @@ def choropleth(
     plot_series, regions, axes=None, cax=None, cmap=None,
     norm=None, vmin=None, vmax=None, vcenter=None,
     cbar_label=None, null_color='gray', save_path=None, show=True,
-    **plot_kwargs
+    cbar_kwargs=None, **plot_kwargs
 ):
+    '''
+    Make a choropleth map from continuous values given in `plot_series` for some given
+    regions. A colorbar will be drawn, either in the given `cax` or to the right of the
+    last ax in `axes`. Cells missing in `plot_series` are coloured in `null_color`.
+    '''
+    if cbar_kwargs is None:
+        cbar_kwargs = {}
+
     if axes is None:
         fig, axes = plt.subplots(len(regions))
 
-    if len(regions) == 1:
+    if isinstance(axes, matplotlib.axes.Axes):
         axes = (axes,)
 
     if norm is None:
@@ -316,6 +203,12 @@ def choropleth(
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         else:
             norm = mcolors.TwoSlopeNorm(vmin=vmin, vmax=vmax, vcenter=vcenter)
+
+    if vmin is not None:
+        norm.vmin = vmin
+    if vmax is not None:
+        norm.vmax = vmax
+    
     for ax, reg in zip(axes, regions):
         area_gdf = reg.shape_geodf
         area_gdf.plot(ax=ax, color=null_color, edgecolor='none', alpha=0.3)
@@ -336,7 +229,7 @@ def choropleth(
         # and the padding between cax and ax will be fixed at 0.1 inch.
         cax = divider.append_axes('right', size='5%', pad=0.1)
 
-    _ = fig.colorbar(sm, cax=cax, label=cbar_label, shrink=0.8)
+    cbar = fig.colorbar(sm, cax=cax, label=cbar_label, **cbar_kwargs)
 
     if show:
         fig.show()
