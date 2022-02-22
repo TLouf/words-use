@@ -187,7 +187,8 @@
         "xy_proj": "EPSG:30729",
         "local_langs": ["ar", "fr"],
         "timezone": "Africa/Algiers",
-        "max_place_area": 1e10
+        "max_place_area": 1e10,
+        "cell_size": 75e3
         },
     "MA": {
         "readable": "Morocco",
@@ -195,7 +196,8 @@
         "xy_proj": "EPSG:26191",
         "local_langs": ["ar", "fr"],
         "timezone": "Africa/Casablanca",
-        "max_place_area": 1e10
+        "max_place_area": 1e10,
+        "cell_size": 75e3
         },
     "TN": {
         "readable": "Tunisia",
