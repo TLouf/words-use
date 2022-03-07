@@ -427,3 +427,49 @@ def dt_chunk_filters_mongo(db, colls: str | list, filter, start, end, chunksize=
         chunk_filters.append(f)
 
     return chunk_filters
+
+
+def get_bot_ids(db, colls, pre_filter, max_hourly_rate=10):
+    with qr.Connection(db) as con:
+        pipeline = [
+            {'$match': pre_filter},
+            {
+                "$group": {
+                    "_id": "$user.id",
+                    "count": { "$sum": 1 },
+                    "lastTime": { "$last": "$created_at" },
+                    "firstTime": { "$first": "$created_at" },
+                }
+            },
+            {
+                "$project": {
+                    "count": 1,
+                    "dt": { "$subtract": ["$lastTime", "$firstTime"] },
+                }
+            },
+            {
+                '$project': {
+                    'dt': 1,
+                    "rate": {
+                        '$cond': {
+                            'if': { '$eq': [ "$dt", 0 ] },
+                            'then': 0,
+                            'else': {"$divide": ["$count", '$dt']}
+                        }
+                    }
+                }
+            },
+            {
+                '$match': {
+                    'rate': {'$gt': max_hourly_rate / (60*60*1000)},
+                    # Someone is awake ~16h per day, so let's consider this rate should
+                    # have been sustained for longer than that to be considered a bot.
+                    'dt': {'$gt': 16 * 60 * 60 * 1000}
+            }}
+        ]
+
+        res = con[colls].aggregate(pipeline, allowDiskUse=True)
+
+        bot_ids = [r['_id'] for r in res]
+
+    return bot_ids
