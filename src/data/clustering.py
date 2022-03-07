@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict, InitVar
+from dataclasses import dataclass, field, asdict, InitVar, _FIELD
 from pathlib import Path
 from typing import Union, List, Optional, Callable
 from itertools import chain
@@ -218,14 +218,14 @@ class Clustering:
         persistent_field_keys = [
             key
             for key, value in field_dict.items()
-            if not isinstance(value.type, InitVar)
+            if value._field_type == _FIELD
         ]
         attr_str_components = []
         for key in persistent_field_keys:
             field = getattr(self, key)
-            size = getattr(field, 'size', 0)
-            if isinstance(size, int) and size < 100:
-                attr_str_components.append(f'{key}={field!r}')
+            field_repr = repr(field)
+            if len(field_repr) < 200:
+                attr_str_components.append(f'{key}={field_repr}')
 
         attr_str = ', '.join(attr_str_components)
         return f'{self.__class__.__name__}({attr_str})'
@@ -437,9 +437,9 @@ class HierarchicalClustering:
         attr_str_components = []
         for key in field_dict.keys():
             field = getattr(self, key)
-            size = getattr(field, 'size', 0)
-            if isinstance(size, int) and size < 100:
-                attr_str_components.append(f'{key}={field!r}')
+            field_repr = repr(field)
+            if len(field_repr) < 200:
+                attr_str_components.append(f'{key}={field_repr}')
 
         attr_str = ', '.join(attr_str_components)
         return f'{self.__class__.__name__}({attr_str})'
@@ -656,12 +656,16 @@ class Decomposition:
 
 
     def __repr__(self):
-        self_dict = asdict(self)
-        exclude_keys = ['proj_vectors']
-        attr_str = ', '.join([f'{key}={getattr(self, key)!r}'
-                              for key in self_dict.keys()
-                              if key not in exclude_keys])
-        return f'Decomposition({attr_str})'
+        field_dict = self.__dataclass_fields__
+        attr_str_components = []
+        for key in field_dict.keys():
+            field = getattr(self, key)
+            field_repr = repr(field)
+            if len(field_repr) < 500:
+                attr_str_components.append(f'{key}={field_repr}')
+
+        attr_str = ', '.join(attr_str_components)
+        return f'{self.__class__.__name__}({attr_str})'
 
 
     def save_net(self, metric, net_file_path_fmt, transfo=None):

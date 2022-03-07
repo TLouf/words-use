@@ -6,7 +6,7 @@ import pickle
 import inspect
 import copy
 from pathlib import Path
-from dataclasses import dataclass, field, InitVar, asdict
+from dataclasses import dataclass, field, InitVar, asdict, _FIELD
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -52,9 +52,9 @@ class Region:
         attr_str_components = []
         for key in field_dict.keys():
             field = getattr(self, key)
-            size = getattr(field, 'size', 0)
-            if isinstance(size, int) and size < 10:
-                attr_str_components.append(f'{key}={field!r}')
+            field_repr = repr(field)
+            if len(field_repr) < 200:
+                attr_str_components.append(f'{key}={field_repr}')
 
         attr_str = ', '.join(attr_str_components)
         return f'{self.__class__.__name__}({attr_str})'
@@ -212,14 +212,14 @@ class Language:
         persistent_field_keys = [
             key
             for key, value in field_dict.items()
-            if not isinstance(value.type, InitVar)
+            if value._field_type == _FIELD
         ]
         attr_str_components = []
         for key in persistent_field_keys:
             field = getattr(self, key)
-            size = getattr(field, 'size', 0)
-            if isinstance(size, int) and size < 10:
-                attr_str_components.append(f'{key}={field!r}')
+            field_repr = repr(field)
+            if len(field_repr) < 500:
+                attr_str_components.append(f'{key}={field_repr}')
 
         attr_str = ', '.join(attr_str_components)
         return f'{self.__class__.__name__}({attr_str})'
