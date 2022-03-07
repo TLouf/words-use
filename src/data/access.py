@@ -404,8 +404,12 @@ def dt_chunk_filters_mongo(db, colls: str | list, filter, start, end, chunksize=
     Has the advantage of being faster than `chunk_filters_mongo`, to the cost of having
     chunks of unequal sizes.
     '''
+    count_filter = filter.copy()
+    count_filter.greater_or_equals('created_at', start)
+    count_filter.less_than('created_at', end)
+
     with qr.Connection(db) as con:
-        nrows = con[colls].count_entries(filter)
+        nrows = con[colls].count_entries(count_filter)
         npartitions = int(ceil(nrows / chunksize))
         LOGGER.info(
             f'{nrows:.3e} tweets matching the filter in collection {colls} of '
