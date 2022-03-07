@@ -515,26 +515,10 @@ class Language:
         return self.word_counts_vectors
 
 
-    def set_cdf_th(self, th):
-        #TODO remove
-        self.cdf_th = th
-        self.word_counts_vectors = None
-        self.word_vectors = None
-        _ = self.get_word_counts_vectors()
-
-
     def get_word_vectors(self, **kwargs):
         if self.word_vectors is None:
             self.word_vectors = word_counts.WordVectors.from_lang(self, **kwargs)
         return self.word_vectors
-
-
-    def set_word_vec_var(self, word_vec_var):
-        #TODO remove
-        if word_vec_var != self.word_vec_var:
-            self.word_vec_var = word_vec_var
-            self.word_vectors = None
-        _ = self.get_word_vectors(word_vec_var=word_vec_var)
 
 
     def calc_morans(self, num_cpus=1):
@@ -585,9 +569,7 @@ class Language:
                 # parts equal to the number of words.
                 size = min(*word_vectors.shape)
                 n_components = np.argmin(var_pca[:size] > var_broken_stick[:size]) - 1
-                print(n_components)
                 pca = data_clustering.select_components(pca, n_components)
-                print(pca.n_components_)
         else:
             # recalculate everyhting or adapt/mask?
             other_decomp = from_other.decompositions[-1]
@@ -628,9 +610,7 @@ class Language:
             pca.n_features_in_ = n_features
             pca.mean_ = np.mean(word_vectors, axis=0)
 
-        print(word_vectors.shape)
         proj_vectors = pca.transform(word_vectors)
-        print(proj_vectors.shape)
         decomposition = data_clustering.Decomposition(
             self.word_counts_vectors, word_vectors, pca, proj_vectors, word_mask,
         )
