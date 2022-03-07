@@ -7,6 +7,7 @@ import inspect
 import copy
 from pathlib import Path
 from dataclasses import dataclass, field, InitVar, asdict, _FIELD
+import datetime
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,6 +30,8 @@ class Region:
     mongo_coll: str = ''
     year_from: int = 2015
     year_to: int = 2021
+    month_from: int = 1
+    month_to: int = 12
     readable: str = ''
     xy_proj: str = 'epsg:3857'
     max_place_area: float = 5e9
@@ -80,7 +83,7 @@ class Region:
         # custom to_dict to keep only parameters that can be in save path
         list_attr = [
             'lc', 'readable', 'cc', 'year_from', 'year_to', 'cell_size',
-            'max_place_area', 'xy_proj'
+            'max_place_area', 'xy_proj', 'month_from', 'month_to'
         ]
         return {attr: getattr(self, attr) for attr in list_attr}
 
@@ -117,36 +120,33 @@ class Region:
         if hasattr(self, df_name):
             if getattr(self, df_name) is None:
                 reg_dict = self.to_dict()
-                parquet_file = Path(str(files_fmt).format(kind=df_name, **reg_dict))
-                if parquet_file.exists():
-                    res = pd.read_parquet(parquet_file)
+                if '{month}' in str(files_fmt):
+                    monthly_patt = str(files_fmt).format(
+                        kind=df_name, year='{year}', month='{month}', **reg_dict
+                    )
+                    from_date = datetime.date(self.year_from, self.month_from, 1)
+                    to_date = datetime.date(self.year_to, self.month_to, 1)
+                    date_range = pd.date_range(from_date, to_date, freq='MS')
+                    files_to_read = [
+                        Path(monthly_patt.format(year=y, month=m))
+                        for y, m in zip(date_range.year, date_range.month)
+                    ]
                 else:
-                    files_to_read = []
                     reg_dict['year_from'] = '{year_from}'
                     reg_dict['year_to'] = '{year_to}'
-                    year_patt = Path(
-                        str(files_fmt)
-                         .format(kind=df_name, **reg_dict)
-                         .replace('{year_from}', '([0-9]{4})')
-                         .replace('{year_to}', '([0-9]{4})')
-                         .replace('.', '\.')
-                    )
+                    yearly_patt = str(files_fmt).format(kind=df_name, **reg_dict)
+                    files_to_read = [
+                        Path(yearly_patt.format(year_from=y, year_to=y))
+                        for y in range(self.year_from, self.year_to + 1)
+                    ]
 
-                    for f in year_patt.parent.iterdir():
-                        match = re.search(str(year_patt), str(f))
-                        if match is not None:
-                            years = [int(y) for y in match.groups()]
-                            # Assumes no overlap
-                            if years[0] >= self.year_from and years[1] <= self.year_to:
-                                files_to_read.append(f)
-
-                    pbar = tqdm(enumerate(files_to_read), total=len(files_to_read))
-                    for i, f in pbar:
-                        pbar.set_description(f.name)
-                        if i == 0:
-                            res = pd.read_parquet(f)
-                        else:
-                            res = res.add(pd.read_parquet(f), fill_value=0)
+                pbar = tqdm(enumerate(files_to_read), total=len(files_to_read))
+                for i, f in pbar:
+                    pbar.set_description(f.name)
+                    if i == 0:
+                        res = pd.read_parquet(f)
+                    else:
+                        res = res.add(pd.read_parquet(f), fill_value=0)
 
                 setattr(self, df_name, res)
 
@@ -172,6 +172,8 @@ class Language:
     all_cntr_shapes: InitVar[geopd.GeoDataFrame] = None
     year_from: int = 2015
     year_to: int = 2021
+    month_from: int = 1
+    month_to: int = 12
     cc: str = field(init=False)
     latlon_proj: str = 'epsg:4326'
     min_nr_cells: int = 10
@@ -243,14 +245,16 @@ class Language:
     @classmethod
     def from_countries_dict(cls, lc, readable, list_cc, countries_dict,
                             all_cntr_shapes, paths, year_from=2015,
-                            year_to=2021, **kwargs):
+                            year_to=2021, month_from=1, month_to=12, **kwargs):
         list_cc.sort()
-        regions = [Region.from_dict(cc, lc, countries_dict[cc],
-                                    year_from=year_from, year_to=year_to)
-                   for cc in list_cc]
-        return cls(
-            lc, readable, list_cc, regions, paths, all_cntr_shapes,
-            year_from=year_from, year_to=year_to, **kwargs
+        regions = [
+            Region.from_dict(cc, lc, countries_dict[cc], year_from=year_from,
+                             year_to=year_to, month_from=month_from, month_to=month_to)
+            for cc in list_cc
+        ]
+        return cls(lc, readable, list_cc, regions, paths, all_cntr_shapes,
+                   year_from=year_from, year_to=year_to,
+                   month_from=month_from, month_to=month_to, **kwargs
         )
 
 
@@ -269,7 +273,7 @@ class Language:
         list_attr = [
             'lc', 'readable', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
             'cell_tokens_th', 'cdf_th', 'year_from', 'year_to', 'max_word_rank',
-            'upper_th',
+            'upper_th', 'month_from', 'month_to'
         ]
         return {attr: getattr(self, attr) for attr in list_attr}
 
@@ -299,13 +303,17 @@ class Language:
 
     def get_global_counts(self):
         if self.global_counts is None:
+            if self.month_from == 1 and self.month_to == 12:
+                files_fmt = self.paths.counts_files_fmt
+            else:
+                files_fmt = self.paths.monthly_counts_files_fmt
             cols = ['count', 'is_proper', 'nr_cells']
             self.global_counts = pd.DataFrame({c: [] for c in cols})
             pbar = tqdm(self.regions)
             for reg in pbar:
                 pbar.set_description(reg.cc)
                 reg_counts = reg.read_counts(
-                    'region_counts', files_fmt=self.paths.counts_files_fmt
+                    'region_counts', files_fmt=files_fmt
                 )
                 reg_counts['is_proper'] = (
                     reg_counts['count_upper'] / reg_counts['count'] > self.upper_th
@@ -387,13 +395,17 @@ class Language:
 
     def get_raw_cell_counts(self):
         if self.raw_cell_counts is None:
+            if self.month_from == 1 and self.month_to == 12:
+                files_fmt = self.paths.counts_files_fmt
+            else:
+                files_fmt = self.paths.monthly_counts_files_fmt
             to_concat = []
             pbar = tqdm(self.regions)
             for reg in pbar:
                 pbar.set_description(reg.cc)
                 to_concat.append(
                     reg.read_counts(
-                        'raw_cell_counts', files_fmt=self.paths.counts_files_fmt
+                        'raw_cell_counts', files_fmt=files_fmt
                     )
                 )
             self.raw_cell_counts = pd.concat(to_concat).sort_index(axis=0, level=0)
