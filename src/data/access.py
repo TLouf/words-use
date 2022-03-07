@@ -257,6 +257,7 @@ def tweets_from_mongo(db, filter, colls: str | list, add_cols=None):
     if add_cols is None:
         add_cols = {}
     default_cols = {
+        'id': {'field': 'id', 'dtype': 'string'},
         'text': {'field': ['extended_tweet.full_text', 'text'], 'dtype': 'string'},
         'coordinates': {'field': 'coordinates.coordinates', 'dtype': 'object'},
         'place_id': {'field': 'place.id', 'dtype': 'string'},
@@ -277,20 +278,24 @@ def tweets_from_mongo(db, filter, colls: str | list, add_cols=None):
         }
         tweets_dict = {key: [] for key in cols_dict.keys()}
 
+        last_id = ''
         for t in tweets:
-            # In the result, nested fields will actually be contained in a nested dict.
-            for col, fields in assign_dict.items():
-                for f in fields:
-                    value = t.get(f[0])
+            if t['id'] != last_id:
+                last_id = t['id']
+                # In the result, nested fields will actually be contained in a nested
+                # dict.
+                for col, fields in assign_dict.items():
+                    for f in fields:
+                        value = t.get(f[0])
 
-                    if len(f) > 1 and value is not None:
-                        for part in f[1:]:
-                            value = value.get(part)
+                        if len(f) > 1 and value is not None:
+                            for part in f[1:]:
+                                value = value.get(part)
 
-                    if value is not None:
-                        break
+                        if value is not None:
+                            break
 
-                tweets_dict[col].append(value)
+                    tweets_dict[col].append(value)
 
     dtypes = {col: d.get('dtype') for col, d in cols_dict.items()}
     tweets_df = pd.DataFrame(tweets_dict).astype(dtypes)
