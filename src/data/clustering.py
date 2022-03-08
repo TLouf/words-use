@@ -23,6 +23,10 @@ import src.visualization.eval as eval_viz
 from dotenv import load_dotenv
 load_dotenv()
 
+# Colorblind friendly from ggplot or seaborn's deep palette
+DEFAULT_CMAP = mcolors.ListedColormap([
+    '#4c72b0', '#dd8452', '#55a868', '#c44e52', '#8172b3', '#937860', '#da8bc3', '#ccb974', '#64b5cd'
+])
 OSLOM_DIR = Path(os.environ['OSLOM_DIR'])
 
 def gen_oslom_res_path(data_path, oslom_opt_params=None, suffix=''):
@@ -315,11 +319,15 @@ class Clustering:
     def attr_color_to_labels(self, cmap=None):
         # make it an attribute to have consistent coloring?
         unique_labels = sorted(self.labels.unique())
-        if cmap is None:
+        nr_cats = len(unique_labels)
+
+        if cmap is None and nr_cats <= DEFAULT_CMAP.N:
+            gen_colors_fun = lambda n: [DEFAULT_CMAP(i) for i in range(n)]
+        elif cmap is None:
             gen_colors_fun = map_viz.gen_distinct_colors
         else:
             gen_colors_fun = lambda n: list(plt.get_cmap(cmap, n).colors)
-        nr_cats = len(unique_labels)
+
         if 'homeless' in unique_labels:
             # Cover case in which only homeless cells.
             if nr_cats == 1:
