@@ -22,7 +22,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 LOGGER = logging.getLogger(__name__)
-# load config from file
 logging.config.fileConfig('logging.ini', disable_existing_loggers=False)
 
 @ray.remote
@@ -79,7 +78,6 @@ def get_dt_range_counts(
     # Moved this below chunk_filters computation because it dramatically slows down
     # count_entries to add the bot filter.
     filter.none_of('user.id', bot_ids)
-    # cell_counts_ref_list.append([])
 
     for i, chunk_f in enumerate(chunk_filters):
         LOGGER.info(f'- started chunk {i}')
@@ -122,7 +120,7 @@ def get_dt_range_counts(
 
 def main(reg, num_cpus, years, res_fpath_format, **kwargs):
     db_name_fmt = 'twitter_{year}'
-    ray.init(num_cpus=num_cpus) #, include_dashboard=False)
+    ray.init(num_cpus=num_cpus)
     LOGGER.info(ray.cluster_resources())
 
     for year in years:
@@ -161,10 +159,6 @@ def main(reg, num_cpus, years, res_fpath_format, **kwargs):
             )
 
             month = start.month
-            # region_counts = word_counts.calc_first_word_masks(reg_counts, **kwargs['filter'])
-            # masks = [~region_counts['is_proper'], region_counts['nr_cell_mask']]
-            # cell_counts = word_counts.filter_cell_counts(
-            #     raw_cell_counts, masks, **kwargs['filter'])
             save_path = Path(str(res_fpath_format).format(
                 kind='raw_cell_counts', year_from=year, year_to=year, year=year, month=month
             ))
@@ -173,9 +167,6 @@ def main(reg, num_cpus, years, res_fpath_format, **kwargs):
                 kind='region_counts', year_from=year, year_to=year, year=year, month=month
             ))
             region_counts.to_parquet(save_path, index=True)
-            # save_path = Path(str(res_fpath_format).format(
-            #     kind='cell_counts', year_from=year, year_to=year))
-            # cell_counts.to_parquet(save_path, index=True)
             LOGGER.info(f'** {start.date()} - {end.date()} done **')
 
     ray.shutdown()
@@ -187,7 +178,7 @@ if __name__ == '__main__':
     with open(ext_data_path / 'countries.json') as f:
         countries_dict = json.load(f)
     all_cntr_shapes = geopd.read_file(
-        str(paths.shp_file_fmt).format('CNTR_RG_01M_2016_4326.shp')
+        str(paths.shp_file_fmt).format('CNTR_RG_01M_2016_4326')
     )
 
     lang = sys.argv[1]
@@ -212,10 +203,6 @@ if __name__ == '__main__':
     
     reg_dict = countries_dict[cc]
     filter_cell_counts_kwargs = {
-        # 'min_nr_cells': 3,
-        # 'sum_th': 1e4,
-        # 'cell_tokens_decade_crit': 2,
-        # 'upper_th': 0.4
     }
     reg = Region.from_dict(cc, lang, reg_dict)
     _ = reg.get_shape_geodf(all_cntr_shapes=all_cntr_shapes)
