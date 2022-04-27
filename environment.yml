@@ -7,6 +7,7 @@ dependencies:
   - fastparquet
   - geopandas
   - graph-tool
+  - ipywidgets
   - jupyterlab
   - matplotlib-base
   - networkx
@@ -24,10 +25,9 @@ dependencies:
   - pip:
     - clusim
     - infomap
-    - POT
     - pycld2
     - pymongo
-    - /home/thomaslouf/me/querier-0.0.5.tar.gz
+    - git+https://github.com/TLouf/querier.git
     - ray
     - rectangle-packer
     - tqdm
