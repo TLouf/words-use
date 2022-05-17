@@ -85,14 +85,13 @@ def cells(cell_plot_df, metric_col,
     return fig
 
 
-def clusters(geodf, cluster_data, valid_cnt,
-             colorscale=None, latlon_proj='epsg:4326',
-             alpha=0.8, **plot_interactive_kwargs):
+def clusters(cells_gdf, labels, colorscale=None, latlon_proj='epsg:4326', alpha=0.8,
+             **plot_interactive_kwargs):
     '''
     Plots an interactive choropleth map of clusters, with a clickable legend to
     show/hide clusters.
     '''
-    cell_plot_df = map_viz.prep_cluster_plot(geodf.loc[valid_cnt], cluster_data)
+    cell_plot_df = cells_gdf.join(labels.rename('label'), how='inner')
     geometry = cell_plot_df.to_crs(latlon_proj).geometry
     start_point = MultiPoint(geometry.centroid.values).centroid
     layout = go.Layout(
@@ -137,7 +136,8 @@ def clusters(geodf, cluster_data, valid_cnt,
             locations=mask.loc[mask].index.values,
             z=[i] * mask.sum(),
             colorscale=((0.0, c), (1.0, c)),
-            name=str(cluster)))
+            name=str(cluster)
+        ))
 
     fig = go.Figure(data=data, layout=layout)
     fig = plot_interactive(fig, **plot_interactive_kwargs)
