@@ -467,7 +467,7 @@ def vec_to_metric(word_counts_vectors, whole_reg_counts, word_vec_var='',
         word_vectors = ((word_vectors - reg_distrib)
                         / (word_vectors + reg_distrib))
 
-    elif word_vec_var == 'Gi_star':
+    elif word_vec_var.startswith('Gi_star'):
         refs = parallel.split_task(calc_G_vectors, word_vectors.T, w)
         word_vectors = np.concatenate(ray.get(refs), axis=0).T
 
@@ -670,11 +670,15 @@ class WordVectors(np.ndarray):
             'global_sum': lang.global_counts['count'].sum()
         }
 
-        if kwargs['word_vec_var'] == 'Gi_star':
-            kwargs['w'] = init_kwargs['spatial_weights_class'].from_dataframe(
-                lang.cells_geodf.loc[lang.relevant_cells],
-                **init_kwargs.get('spatial_weights_kwargs', {})
+        if kwargs['word_vec_var'].startswith('Gi_star'):
+            w_class = init_kwargs['spatial_weights_class']
+            w_kwargs = init_kwargs.get('spatial_weights_kwargs', {})
+            w = w_class.from_dataframe(
+                lang.cells_geodf.loc[lang.relevant_cells], **w_kwargs
             )
+            kwargs['w'] = libpysal.weights.fill_diagonal(w)
+            kw_str = ', '.join(f'{key}={value}' for key, value in w_kwargs.items())
+            init_kwargs['word_vec_var'] = f"Gi_star(w={w_class.__name__}({kw_str}))"
 
         array = vec_to_metric(
             word_counts_vectors,
