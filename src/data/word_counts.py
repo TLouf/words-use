@@ -16,57 +16,6 @@ import src.utils.smooth as smooth
 import src.utils.parallel as parallel
 
 
-class My_G_local(G_Local):
-    def __init__(
-        self,
-        y,
-        w,
-        transform="R",
-        permutations=999,
-        star=False,
-        keep_simulations=True,
-    ):
-        y = np.asarray(y).flatten()
-        self.n = len(y)
-        self.y = y
-        self.w = w
-        self.w_original = w.transform
-        self.w.transform = self.w_transform = transform.lower()
-        self.permutations = permutations
-        self.star = star
-        self.calc()
-        self.p_norm = 1 - scipy.stats.norm.cdf(np.abs(self.Zs))
-        if permutations:
-            self._G_Local__crand(keep_simulations)
-            if keep_simulations:
-                self.sim = sim = self.rGs.T
-                self.EG_sim = sim.mean(axis=0)
-                self.seG_sim = sim.std(axis=0)
-                self.VG_sim = self.seG_sim * self.seG_sim
-                self.z_sim = (self.Gs - self.EG_sim) / self.seG_sim
-                self.p_z_sim = 1 - scipy.stats.norm.cdf(np.abs(self.z_sim))
-
-def calc_G_vectors(word_props_vecs, w):
-    word_Zs_vecs = np.zeros_like(word_props_vecs)
-    for word_idx, vec in enumerate(word_props_vecs):
-        lg_star = My_G_local(vec, w, transform='R', star=True, permutations=0)
-        word_Zs_vecs[word_idx] = lg_star.Zs
-    return word_Zs_vecs
-
-def calc_G(word_props_vecs, w, permutations=999):
-    # word_Zs_vecs = np.zeros_like(word_props_vecs)
-    attrs = ['p_sim', 'z_sim', 'p_norm', 'Zs']
-    lg_star_dict = {key: [] for key in attrs}
-    for word_idx, vec in enumerate(word_props_vecs):
-        lg_star = My_G_local(vec, w, transform='R', star=True, permutations=permutations)
-        for key in attrs:
-            lg_star_dict[key].append(getattr(lg_star, key))
-        # lg_star_list.append(lg_star.p_sim, lg_star.z_sim, lg_star.p_norm, lg_star.Zs)
-        # word_Zs_vecs[word_idx] = lg_star.Zs
-        # p_values[word_idx] = lg_star
-    return lg_star_dict
-
-
 def get_cell_of_pt_tweets(
     tweets_pts_df, cells_geodf, poi_places_geodf, latlon_proj='epsg:4326'
 ):
@@ -438,6 +387,57 @@ def disordered_sparse_series_to_coo(raw_series, i_index, j_index):
         (values, (i, j)), shape=(len(i_index), len(j_index))
     )
     return sparse_mat
+
+
+class My_G_local(G_Local):
+    def __init__(
+        self,
+        y,
+        w,
+        transform="R",
+        permutations=999,
+        star=False,
+        keep_simulations=True,
+    ):
+        y = np.asarray(y).flatten()
+        self.n = len(y)
+        self.y = y
+        self.w = w
+        self.w_original = w.transform
+        self.w.transform = self.w_transform = transform.lower()
+        self.permutations = permutations
+        self.star = star
+        self.calc()
+        self.p_norm = 1 - scipy.stats.norm.cdf(np.abs(self.Zs))
+        if permutations:
+            self._G_Local__crand(keep_simulations)
+            if keep_simulations:
+                self.sim = sim = self.rGs.T
+                self.EG_sim = sim.mean(axis=0)
+                self.seG_sim = sim.std(axis=0)
+                self.VG_sim = self.seG_sim * self.seG_sim
+                self.z_sim = (self.Gs - self.EG_sim) / self.seG_sim
+                self.p_z_sim = 1 - scipy.stats.norm.cdf(np.abs(self.z_sim))
+
+def calc_G_vectors(word_props_vecs, w):
+    word_Zs_vecs = np.zeros_like(word_props_vecs)
+    for word_idx, vec in enumerate(word_props_vecs):
+        lg_star = My_G_local(vec, w, transform='R', star=True, permutations=0)
+        word_Zs_vecs[word_idx] = lg_star.Zs
+    return word_Zs_vecs
+
+def calc_G(word_props_vecs, w, permutations=999):
+    # word_Zs_vecs = np.zeros_like(word_props_vecs)
+    attrs = ['p_sim', 'z_sim', 'p_norm', 'Zs']
+    lg_star_dict = {key: [] for key in attrs}
+    for word_idx, vec in enumerate(word_props_vecs):
+        lg_star = My_G_local(vec, w, transform='R', star=True, permutations=permutations)
+        for key in attrs:
+            lg_star_dict[key].append(getattr(lg_star, key))
+        # lg_star_list.append(lg_star.p_sim, lg_star.z_sim, lg_star.p_norm, lg_star.Zs)
+        # word_Zs_vecs[word_idx] = lg_star.Zs
+        # p_values[word_idx] = lg_star
+    return lg_star_dict
 
 
 def vec_to_metric(word_counts_vectors, whole_reg_counts, word_vec_var='',
