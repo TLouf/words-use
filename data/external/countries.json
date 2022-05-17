@@ -32,6 +32,7 @@
         },
     "IE": {
         "readable": "Ireland",
+        "mongo_coll": "northern_europe",
         "xy_proj": "EPSG:2157",
         "local_langs": ["en"],
         "timezone": "Europe/Dublin",
@@ -51,6 +52,7 @@
         },
     "JM": {
         "readable": "Jamaica",
+        "mongo_coll": "latin_america_and_the_caribbean",
         "xy_proj": "EPSG:24200",
         "local_langs": ["en"],
         "max_place_area": 2e10,
@@ -58,6 +60,7 @@
         },
     "BZ": {
         "readable": "Belize",
+        "mongo_coll": "latin_america_and_the_caribbean",
         "xy_proj": "EPSG:32616",
         "local_langs": ["en"],
         "max_place_area": 5e10,
@@ -65,6 +68,7 @@
         },
     "IN": {
         "readable": "India",
+        "mongo_coll": "southern_asia",
         "xy_proj": "EPSG:24378",
         "local_langs": ["en"],
         "max_place_area": 2.5e10,
@@ -72,6 +76,7 @@
         }, 
     "NZ": {
         "readable": "New Zealand",
+        "mongo_coll": "australia_and_new_zealand",
         "xy_proj": "EPSG:27200",
         "local_langs": ["en"],
         "timezone": "Pacific/Auckland",
@@ -79,6 +84,7 @@
         },
     "AU": {
         "readable": "Australia",
+        "mongo_coll": "australia_and_new_zealand",
         "xy_proj": "EPSG:3112",
         "local_langs": ["en"],
         "max_place_area": 2.5e10,
@@ -158,18 +164,21 @@
         },
     "LV": {
         "readable": "Latvia",
+        "mongo_coll": "northern_europe",
         "xy_proj": "EPSG:3059",
         "local_langs": ["lv", "ru"],
         "timezone": "EET"
         },
     "EE": {
         "readable": "Estonia",
+        "mongo_coll": "northern_europe",
         "xy_proj": "EPSG:3059",
         "local_langs": ["et", "ru"],
         "timezone": "EET"
         },
     "FI": {
         "readable": "Finland",
+        "mongo_coll": "northern_europe",
         "xy_proj": "EPSG:3067",
         "local_langs": ["fi", "sv", "ru"],
         "timezone": "Europe/Helsinki",
@@ -177,6 +186,7 @@
         },
     "CY": {
         "readable": "Cyprus",
+        "mongo_coll": "western_asia",
         "xy_proj": "EPSG:6312",
         "local_langs": ["el", "tr"],
         "timezone": "Asia/Nicosia"
@@ -231,7 +241,7 @@
         "xy_proj": "EPSG:2039",
         "max_place_area": 1e15,
         "cell_size": 1e9,
-        "local_langs": ["iw", "ar", "en", "fr", "ru"],
+        "local_langs": ["iw", "ar", "en", "ru"],
         "timezone": "Asia/Jerusalem"
         },
     "LB": {
@@ -413,6 +423,7 @@
         },
     "SG": {
         "readable": "Singapore",
+        "mongo_coll": "south_eastern_asia",
         "xy_proj": "EPSG:3414",
         "min_poly_area": 0,
         "max_place_area": 5e8,
