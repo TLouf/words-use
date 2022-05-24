@@ -614,7 +614,7 @@ class HierarchicalClustering:
             link_cols[i+nr_leaves] = c1 if c1 == c2 else 'k'
 
         shc_dendro_kwargs.setdefault('truncate_mode', 'level')
-        shc_dendro_kwargs.setdefault('p', len(self.levels) // 2 + 1)
+        shc_dendro_kwargs.setdefault('p', len(self.levels[:coloring_lvl]))
         shc_dendro_kwargs.setdefault('link_color_func', lambda x: link_cols[x])
         _ = shc.dendrogram(self.linkage, ax=ax, **shc_dendro_kwargs)
 
