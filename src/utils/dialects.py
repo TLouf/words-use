@@ -696,10 +696,12 @@ class Language:
 
 
     def map_continuous_choro(
-        self, z_plot, normed_bboxes: bool | np.ndarray = True,
+        self, z_plot, normed_bboxes: bool | np.ndarray | None = None,
         total_width=178, total_height=None, axes=None, cax=None,
         cbar_kwargs=None, **choro_kwargs
     ):
+        if normed_bboxes is None:
+            normed_bboxes = len(self.regions) > 1
         if normed_bboxes is True:
             # calculate optimal position
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
@@ -711,8 +713,11 @@ class Language:
             _, axes = plt.subplots(len(self.regions) + 1, figsize=figsize)
             cax = axes[-1]
             axes = axes[:-1]
-        
-        plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
+
+        if isinstance(z_plot, pd.Series):
+            plot_series = z_plot
+        else:
+            plot_series = pd.Series(z_plot, index=self.relevant_cells, name='z')
 
         fig, axes = map_viz.choropleth(
             plot_series, self.regions, axes=axes, cax=cax,
@@ -743,7 +748,10 @@ class Language:
 
     def map_comp(self, i_decompo=-1, comps=None, cmap='bwr',
                  total_width=178, total_height=None, save_path_fmt='',
-                 normed_bboxes=True, cbar_kwargs=None, **plot_kwargs):
+                 normed_bboxes=None, cbar_kwargs=None, **plot_kwargs):
+        if normed_bboxes is None:
+            normed_bboxes = len(self.regions) > 1
+
         if normed_bboxes is True:
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
                 total_width, total_height=total_height, ratio_lgd=1/10

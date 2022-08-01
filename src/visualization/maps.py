@@ -11,7 +11,7 @@ import rpack
 import src.utils.geometry as geo
 
 
-def gen_distinct_colors(num_colors):
+def gen_distinct_colors(num_colors, mean_lightness=40):
     '''
     Generate `num_colors` distinct colors for a discrete colormap, in the format
     of a list of tuples of normalized RGB values.
@@ -19,7 +19,7 @@ def gen_distinct_colors(num_colors):
     colors = []
     for i in np.arange(0., 360., 360. / num_colors):
         hue = i / 360.
-        lightness = (40 + np.random.rand() * 20) / 100.
+        lightness = (mean_lightness + np.random.rand() * 20) / 100.
         saturation = (80 + np.random.rand() * 20) / 100.
         colors.append(colorsys.hls_to_rgb(hue, lightness, saturation))
     return colors
@@ -217,7 +217,8 @@ def choropleth(
             column=plot_series.name, ax=ax, norm=norm, cmap=cmap, **plot_kwargs
         )
         area_gdf.plot(ax=ax, color='none', edgecolor='black', linewidth=0.5)
-        ax.set_title(reg.readable)
+        if len(regions) > 1:
+            ax.set_title(reg.readable)
         ax.set_axis_off()
 
     fig = ax.get_figure()
