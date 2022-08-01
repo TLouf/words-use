@@ -28,3 +28,4 @@ scipy==1.6.0
 Shapely==1.7.1
 -e ./
 tqdm==4.56.2
+census
