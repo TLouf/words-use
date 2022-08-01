@@ -55,7 +55,7 @@ def old_distribs_extract(list_fips, freq_file_format):
 
 
 
-def get_states_geodf(state_fpath, xy_proj='epsg:3857'):
+def get_states_geodf(state_fpath, xy_proj='epsg:3857', simplify_tol=5000):
     states_geodf = geopd.read_file(state_fpath)
     states_geodf = (states_geodf.astype({'STATEFP': int})
                           .set_index('STATEFP')
@@ -64,6 +64,7 @@ def get_states_geodf(state_fpath, xy_proj='epsg:3857'):
     to_exclude = ((states_geodf.index.isin((15, 2)))
                   | (states_geodf.index > 56))
     states_geodf = states_geodf.loc[~to_exclude].to_crs(xy_proj)
+    states_geodf.geometry = states_geodf.geometry.simplify(simplify_tol)
     return states_geodf
 
     
