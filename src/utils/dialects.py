@@ -116,9 +116,9 @@ class Region:
         return self.cells_geodf
 
 
-    def read_counts(self, df_name, files_fmt=None):
+    def read_counts(self, df_name, files_fmt=None, force_read=False):
         if hasattr(self, df_name):
-            if getattr(self, df_name) is None:
+            if getattr(self, df_name) is None or force_read:
                 reg_dict = self.to_dict()
                 if '{month}' in str(files_fmt):
                     monthly_patt = str(files_fmt).format(
@@ -132,9 +132,12 @@ class Region:
                         for y, m in zip(date_range.year, date_range.month)
                     ]
                 else:
-                    reg_dict['year_from'] = '{year_from}'
-                    reg_dict['year_to'] = '{year_to}'
-                    yearly_patt = str(files_fmt).format(kind=df_name, **reg_dict)
+                    yearly_patt = (
+                        str(files_fmt)
+                        .format(kind=df_name, **reg_dict) # TODO: change 'old_' + 
+                        .replace(f'{self.year_from}-{self.year_to}',
+                                 '{year_from}-{year_to}')
+                    )
                     files_to_read = [
                         Path(yearly_patt.format(year_from=y, year_to=y))
                         for y in range(self.year_from, self.year_to + 1)
@@ -304,8 +307,8 @@ class Language:
             pickle.dump(self, f)
 
 
-    def get_global_counts(self):
-        if self.global_counts is None:
+    def get_global_counts(self, force=False):
+        if self.global_counts is None or force:
             if self.month_from == 1 and self.month_to == 12:
                 files_fmt = self.paths.counts_files_fmt
             else:
@@ -316,7 +319,7 @@ class Language:
             for reg in pbar:
                 pbar.set_description(reg.cc)
                 reg_counts = reg.read_counts(
-                    'region_counts', files_fmt=files_fmt
+                    'region_counts', files_fmt=files_fmt, force_read=force
                 )
                 reg_counts['is_proper'] = (
                     reg_counts['count_upper'] / reg_counts['count'] > self.upper_th
@@ -324,9 +327,9 @@ class Language:
                 self.global_counts = self.global_counts.add(
                     reg_counts[cols], fill_value=0
                 )
-        self.global_counts = self.global_counts.sort_values(
-            by='count', ascending=False
-        )
+            self.global_counts = self.global_counts.sort_values(
+                by='count', ascending=False
+            )
         return self.global_counts
 
 
@@ -396,8 +399,8 @@ class Language:
             )
 
 
-    def get_raw_cell_counts(self):
-        if self.raw_cell_counts is None:
+    def get_raw_cell_counts(self, force=False):
+        if self.raw_cell_counts is None or force:
             if self.month_from == 1 and self.month_to == 12:
                 files_fmt = self.paths.counts_files_fmt
             else:
@@ -408,7 +411,7 @@ class Language:
                 pbar.set_description(reg.cc)
                 to_concat.append(
                     reg.read_counts(
-                        'raw_cell_counts', files_fmt=files_fmt
+                        'raw_cell_counts', files_fmt=files_fmt, force_read=force
                     )
                 )
             self.raw_cell_counts = pd.concat(to_concat).sort_index(axis=0, level=0)
