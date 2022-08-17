@@ -20,6 +20,7 @@ import src.utils.geometry as geo
 import src.utils.parallel as parallel
 import src.utils.paths as paths_utils
 import src.visualization.maps as map_viz
+import src.visualization.words as word_viz
 import src.data.word_counts as word_counts
 import src.data.clustering as data_clustering
 
@@ -862,3 +863,29 @@ class Language:
         decomp = self.decompositions[i_decompo]
         clust = decomp.clusterings[i_clust]
         return clust.silhouette_plot(decomp.proj_vectors, metric=metric)
+
+
+    def word_cloud(self, i_decompo=-1, i_comp=0, nr_words=30, save_path=None):
+        decomp = self.decompositions[i_decompo]
+        comp = decomp.decomposition.components_[i_comp]
+        comp_loadings = pd.Series(
+            comp,
+            name=f'comp{i_comp}_load',
+            index=decomp.word_mask.loc[decomp.word_mask].index,
+        )
+
+        top_loadings = comp_loadings.sort_values(ascending=True)
+        # top_loadings = comp_loadings[f'comp{i_comp}_load'].sort_values(ascending=True)
+        word_weights = top_loadings.iloc[:nr_words] / top_loadings.iloc[0]
+        word_weights = word_weights.append(top_loadings.iloc[-nr_words:] / top_loadings.iloc[-1])
+
+        def color_func(word, font_size, position, orientation, font_path, random_state):
+            if top_loadings.loc[word] > 0:
+                return (255, 0, 0)
+            else:
+                return (0, 0, 255)
+
+        fig, ax = word_viz.cloud(
+            word_weights, color_func=color_func, fig=fig, ax=ax, save_path=save_path
+        )
+        return fig, ax
