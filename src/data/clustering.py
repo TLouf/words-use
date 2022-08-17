@@ -590,7 +590,7 @@ class HierarchicalClustering:
 
     def plot_dendrogram(self, coloring_lvl=-1, ax=None, **shc_dendro_kwargs):
         if ax is None:
-            fig, ax = plt.subplots(1, figsize=(10, 7))
+            fig, ax = plt.subplots()
         fig = ax.get_figure()
 
         clust_coloring = self.levels[coloring_lvl]
@@ -668,10 +668,12 @@ class Decomposition:
 
     def __str__(self):
         self_dict = asdict(self)
-        exclude_keys = ['proj_vectors']
-        return str({key: value
-                    for key, value in self_dict.items()
-                    if key not in exclude_keys})
+        exclude_keys = ['proj_vectors', 'word_mask', 'clusterings']
+        return '_'.join(
+            f'{key}={value}'
+            for key, value in self_dict.items()
+            if key not in exclude_keys
+        )
 
 
     def __repr__(self):
