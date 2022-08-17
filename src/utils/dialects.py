@@ -555,18 +555,15 @@ class Language:
 
 
     def get_word_counts_vectors(self, **kwargs):
-        word_mask_col = kwargs.get('word_mask_col')
-        if word_mask_col is not None:
-            if kwargs.get('cell_sums') is None:
-                cell_sums = (self.raw_cell_counts.groupby('cell_id')['count']
-                                                 .sum()
-                                                 .reindex(self.relevant_cells)
-                                                 .fillna(0)
-                                                 .values)
-                kwargs['cell_sums'] = cell_sums
-
         if self.word_counts_vectors is None:
+            word_mask_col = kwargs.get('word_mask_col')
+            if word_mask_col is not None:
+                if kwargs.get('cell_sums') is None:
+                    cell_sums = self.cell_sums.loc[self.relevant_cells].values
+                    kwargs['cell_sums'] = cell_sums
+
             self.word_counts_vectors = word_counts.WordCountsVectors.from_lang(self, **kwargs)
+
         return self.word_counts_vectors
 
 
