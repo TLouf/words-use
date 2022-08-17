@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - libpysal
   - esda
   - fastparquet
   - geopandas
@@ -32,3 +33,4 @@ dependencies:
     - rectangle-packer
     - tqdm
     - wordcloud
+    - -e ./
