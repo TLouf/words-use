@@ -533,6 +533,14 @@ class WordCountsVectors(np.ndarray):
         self.cell_sums = getattr(obj, 'cell_sums', None)
 
 
+    def __str__(self):
+        attrs_to_include = _WORD_COUNTS_VEC_ATTR
+        return '_'.join(
+            f'{key}={getattr(self, key)}'
+            for key in attrs_to_include
+        )
+        
+
     @classmethod
     def from_lang(cls, lang, word_mask_col=None, **init_kwargs):
         cell_counts = lang.get_cell_counts()
@@ -661,6 +669,14 @@ class WordVectors(np.ndarray):
         if obj is None: return
         for attr in _WORD_VEC_ATTR:
             setattr(self, attr, getattr(obj, attr, None))
+
+
+    def __str__(self):
+        attrs_to_include = ['word_vec_var']
+        return '_'.join(
+            f'{key}={getattr(self, key)}'
+            for key in attrs_to_include
+        )
 
 
     @classmethod
