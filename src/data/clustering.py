@@ -635,6 +635,17 @@ class HierarchicalClustering:
             _, _ = lvl.silhouette_plot(proj_vectors, metric=metric)
 
 
+    def score_plot(
+        self, nr_lvls=None, ylabel='silhouette score', ax=None,
+        show=True, save_path=None
+    ):
+        nrs_clusters = [lvl.nr_clusters for lvl in self.levels[:nr_lvls]]
+        scores = [lvl.score for lvl in self.levels[:nr_lvls]]
+        fig, ax = eval_viz.clust_levels_scores(
+            nrs_clusters, scores, ax=ax, ylabel=ylabel, show=show, save_path=save_path
+        )
+        return fig, ax
+
 
 @dataclass
 class Decomposition:
