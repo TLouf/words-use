@@ -417,6 +417,43 @@ class Language:
         return self.raw_cell_counts
 
 
+    @property
+    def cell_sums(self):
+        if 'token_sum' not in self.cells_geodf.columns:
+            # Reindex to have all cells (useful when self.cell_tokens_th == 0).
+            self.cells_geodf['token_sum'] = (
+                self.raw_cell_counts.groupby('cell_id')['count']
+                .sum()
+                .reindex(self.cells_geodf.index)
+                .fillna(0)
+            )
+        return self.cells_geodf['token_sum']
+
+    @cell_sums.deleter
+    def cell_sums(self):
+        self.cells_geodf = self.cells_geodf.drop(columns='token_sum')
+
+
+    @property
+    def cell_is_relevant(self):
+        if 'is_relevant' not in self.cells_geodf.columns:
+            self.cells_geodf['is_relevant'] = self.cell_sums >= self.cell_tokens_th
+        return self.cells_geodf['is_relevant']
+
+    @cell_is_relevant.deleter
+    def cell_is_relevant(self):
+        self.cells_geodf = self.cells_geodf.drop(columns='is_relevant')
+
+
+    @property
+    def relevant_cells(self):
+        return self.cell_is_relevant.loc[self.cell_is_relevant].index
+
+    @relevant_cells.deleter
+    def relevant_cells(self):
+        del self.cell_is_relevant
+
+
     def get_cell_counts(self):
         if self.cell_counts is None:
             raw_cell_counts = self.get_raw_cell_counts()
