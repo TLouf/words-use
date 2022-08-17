@@ -171,7 +171,6 @@ class Language:
     readable: str
     list_cc: list[str]
     regions: list[Region]
-    _paths: paths_utils.ProjectPaths
     all_cntr_shapes: InitVar[geopd.GeoDataFrame] = None
     year_from: int = 2015
     year_to: int = 2021
@@ -249,7 +248,7 @@ class Language:
 
     @classmethod
     def from_countries_dict(cls, lc, readable, list_cc, countries_dict,
-                            all_cntr_shapes, paths, year_from=2015,
+                            all_cntr_shapes, year_from=2015,
                             year_to=2021, month_from=1, month_to=12, **kwargs):
         list_cc.sort()
         regions = [
@@ -257,7 +256,7 @@ class Language:
                              year_to=year_to, month_from=month_from, month_to=month_to)
             for cc in list_cc
         ]
-        return cls(lc, readable, list_cc, regions, paths, all_cntr_shapes,
+        return cls(lc, readable, list_cc, regions, all_cntr_shapes,
                    year_from=year_from, year_to=year_to,
                    month_from=month_from, month_to=month_to, **kwargs
         )
