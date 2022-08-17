@@ -179,18 +179,20 @@ class Language:
     month_to: int = 12
     str_cc: str = field(init=False)
     latlon_proj: str = 'epsg:4326'
-    min_nr_cells: int = 10
-    upper_th: float = 0.4
-    cell_tokens_th: float = 1e4
+    # Parameters for word and cell filters:
+    min_nr_cells: int = 10 # used in `filter_global_counts`
+    upper_th: float = 0.4 # used when reading global_counts
+    cell_tokens_th: float = 1e4 # used in `cell_is_relevant` and `make_cell_counts_mask`
     cell_tokens_decade_crit: float = 2.
-    word_tokens_th: float = 0
-    max_word_rank: int | None = None
+    word_tokens_th: float = 0 # used in `make_cell_counts_mask`
+    smallest_cell_min_count: int = 0 # used in `make_cell_counts_mask`
+    max_word_rank: int | None = None # used in `make_cell_counts_mask`
+    # Data containers (frames, arrays)
     cells_geodf: geopd.GeoDataFrame = field(init=False)
     global_counts: pd.DataFrame | None = None
     raw_cell_counts: pd.DataFrame | None = None
     words_prior_mask: pd.Series | None = None
     cell_counts: pd.DataFrame | None = None
-    relevant_cells: pd.Index | None = None # necessarily sorted given that it's created from a groupby
     word_counts_vectors: word_counts.WordCountsVectors | None = None
     word_vec_var: str = ''
     word_vectors: word_counts.WordVectors | None = None
@@ -376,12 +378,42 @@ class Language:
         `cell_counts`, while not deleting anything from `global_counts`, as
         opposed to how `filter_global_counts` works.
         '''
-        # mask appplided to raw_cell_counts to get cell_counts
-        self.global_counts['cell_counts_mask'] = False
-        col = self.global_counts.columns.get_loc('cell_counts_mask')
-        self.global_counts.iloc[:self.max_word_rank, col] = True
+        # mask applied to raw_cell_counts to get cell_counts
+        self.global_counts['cell_counts_mask'] = True
+
+        if self.smallest_cell_min_count > 0:
+            self.global_counts['cell_counts_mask'] = False
+            raw_cell_counts = self.raw_cell_counts
+            cell_sums = self.cell_sums
+            relevant_cells = self.relevant_cells
+            # If a cells is x times over the cell tokens threshold, stop at the word
+            # with at least x occurences in that cell. This way equivalent proportion of
+            # 1/cell_tokens_th (check).
+            cell_mult = cell_sums.loc[relevant_cells] / self.cell_tokens_th
+            raw_cell_counts = raw_cell_counts.join(cell_mult.rename('threshold'))
+            # .index.levels[0] returns a list of words that's not been updated after the query.
+            mult = self.smallest_cell_min_count
+            words_to_keep = (
+                raw_cell_counts.query('count >= @mult * threshold')
+                 .index
+                 .get_level_values('word')
+                 .unique()
+            )
+            raw_cell_counts = raw_cell_counts.drop(columns=['threshold'])
+            print(f"Keeping {len(words_to_keep)} words.")
+            # Since `words_to_keep` are extracted from `raw_cell_counts`, they might
+            # have been filtered out of `global_counts`, hence the update method.
+            word_series = pd.Series(True, index=words_to_keep, name='cell_counts_mask')
+            self.global_counts['cell_counts_mask'].update(word_series)
+
+        # These conditions are applied unconditionally because they're very cheap to
+        # apply, and they don't do anything if parameters have their default values
+        if self.max_word_rank is not None:
+            col = self.global_counts.columns.get_loc('cell_counts_mask')
+            self.global_counts.iloc[self.max_word_rank:, col] = False
         word_tokens_mask = self.global_counts['count'] < self.word_tokens_th
         self.global_counts.loc[word_tokens_mask, 'cell_counts_mask'] = False
+
         if mask is not None:
             if isinstance(mask, pd.Series):
                 words_mask = mask
@@ -458,29 +490,26 @@ class Language:
     def get_cell_counts(self):
         if self.cell_counts is None:
             raw_cell_counts = self.get_raw_cell_counts()
-            total_nr_tokens = raw_cell_counts['count'].sum()
             if self.words_prior_mask is None:
                 _ = self.filter_global_counts()
+
+            # Cell filter
+            print(f'Keeping {self.relevant_cells.shape[0]} cells out of '
+                  f'{self.cell_is_relevant.shape[0]} with threshold '
+                  f'{self.cell_tokens_th:.2e}.')
+            cell_counts = word_counts.filter_part_multidx(
+                raw_cell_counts, [self.cell_is_relevant]
+            )
+
+            # Words filter
             if 'cell_counts_mask' not in self.global_counts.columns:
                 self.make_cell_counts_mask()
             cell_counts = word_counts.filter_part_multidx(
-                raw_cell_counts, [self.global_counts['cell_counts_mask']]
+                cell_counts, [self.global_counts['cell_counts_mask']]
             )
 
-            # Reindex to have all cells (useful when self.cell_tokens_th == 0).
-            cell_sum = (raw_cell_counts.groupby('cell_id')['count']
-                                       .sum()
-                                       .reindex(self.cells_geodf.index)
-                                       .fillna(0))
-            sum_th = self.cell_tokens_th
-            cell_is_relevant = cell_sum >= sum_th
-            self.relevant_cells = cell_is_relevant.loc[cell_is_relevant].index
-            print(f'Keeping {self.relevant_cells.shape[0]} cells out of '
-                  f'{cell_is_relevant.shape[0]} with threshold {sum_th:.2e}')
-            cell_counts = word_counts.filter_part_multidx(
-                cell_counts, [cell_is_relevant])
-
             filtered_nr_tokens = cell_counts['count'].sum()
+            total_nr_tokens = self.cell_sums.sum()
             rel_diff = (total_nr_tokens - filtered_nr_tokens) / total_nr_tokens
             print(f'We had {total_nr_tokens:.0f} tokens, and filtering ',
                   f'brought it down to {filtered_nr_tokens:.0f}, so we lost ',
