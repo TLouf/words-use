@@ -82,6 +82,7 @@ class ProjectPaths:
     cluster_fig_fmt: Path = field(init=False)
 
     def __post_init__(self):
+        # str_cc is for all regions in lang, cc is region-specific
         self.source_fmt = self.source_data / self.source_fname_fmt
         self.proj_data = self.proj / 'data'
         self.ext_data = self.proj_data / 'external'
@@ -92,10 +93,10 @@ class ProjectPaths:
         self.monthly_counts_files_fmt = self.raw_data / '{lc}' / '{cc}' / self.monthly_counts_fname_fmt
         self.shp_file_fmt = self.ext_data / '{0}.shp' / '{0}.shp'
         self.figs = self.proj / 'reports' / 'figures'
-        self.case_figs = self.figs / '{lc}' / '{cc}' / '{year_from}-{year_to}'
+        self.case_figs = self.figs / '{lc}' / '{str_cc}' / '{year_from}-{year_to}'
         self.cluster_fig_fmt = self.case_figs / self.cluster_fig_fname_fmt
         self.decomp_fig_fmt = self.case_figs / self.decomp_fig_fname_fmt
-        self.net_fmt = self.processed_data / '{lc}' / '{cc}' / self.net_fname_fmt
+        self.net_fmt = self.processed_data / '{lc}' / '{str_cc}' / self.net_fname_fmt
 
 
     def partial_format(self, **kwargs):

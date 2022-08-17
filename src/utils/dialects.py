@@ -174,7 +174,7 @@ class Language:
     year_to: int = 2021
     month_from: int = 1
     month_to: int = 12
-    cc: str = field(init=False)
+    str_cc: str = field(init=False)
     latlon_proj: str = 'epsg:4326'
     min_nr_cells: int = 10
     upper_th: float = 0.4
@@ -196,9 +196,11 @@ class Language:
     decompositions: list[data_clustering.Decomposition] = field(default_factory=list)
 
     def __post_init__(self, all_cntr_shapes):
-        self.list_cc, self.regions = zip(*sorted(
-            zip(self.list_cc, self.regions), key=lambda t: t[0]))
-        self.cc = '-'.join(self.list_cc)
+        self.list_cc, self.regions = (
+            list(x)
+            for x in zip(*sorted(zip(self.list_cc, self.regions), key=lambda t: t[0]))
+        )
+        self.str_cc = '-'.join(self.list_cc)
         self.cells_geodf = pd.concat([
             reg.get_cells_geodf(all_cntr_shapes=all_cntr_shapes)
                .to_crs(self.latlon_proj)
@@ -260,10 +262,11 @@ class Language:
 
     def data_file_fmt(self, save_dir, add_keys=None):
         add_keys = add_keys or []
-        keys = ['lc', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
+        keys = ['lc', 'str_cc', 'min_nr_cells', 'cell_tokens_decade_crit',
                 'cell_tokens_th', 'cdf_th'] + add_keys
         params_str = '_'.join(
-            [f'{key}={{{key}}}' for key in keys])
+            [f'{key}={{{key}}}' for key in keys]
+        )
         save_path_fmt = str(save_dir / f'{{kind}}_{params_str}.{{ext}}')
         return save_path_fmt
 
@@ -271,9 +274,9 @@ class Language:
     def to_dict(self):
         # custom to_dict to keep only parameters that can be in save path
         list_attr = [
-            'lc', 'readable', 'cc', 'min_nr_cells', 'cell_tokens_decade_crit',
+            'lc', 'readable', 'str_cc', 'min_nr_cells', 'cell_tokens_decade_crit',
             'cell_tokens_th', 'cdf_th', 'year_from', 'year_to', 'max_word_rank',
-            'upper_th', 'month_from', 'month_to'
+            'upper_th', 'month_from', 'month_to', 'smallest_cell_min_count'
         ]
         return {attr: getattr(self, attr) for attr in list_attr}
 
