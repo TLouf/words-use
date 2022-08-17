@@ -48,23 +48,23 @@ def get_places_and_intersect(db, places_filter, reg, tweets_filter, tweets_colls
     raw_places_geodf = data_access.places_from_mongo(
         db, places_filter, tweets_filter=tweets_filter, tweets_colls=tweets_colls
     )
-    LOGGER.info(f'retrieved {raw_places_geodf.shape[0]} places')
+    LOGGER.info(f'{reg.readable}: retrieved {raw_places_geodf.shape[0]} places')
     places_geodf = geo_utils.make_places_geodf(
         raw_places_geodf, reg.shape_geodf, reg.cc, xy_proj=reg.xy_proj
     )
-    LOGGER.info(f'filtered down to {places_geodf.shape[0]} places')
+    LOGGER.info(f'{reg.readable}: filtered down to {places_geodf.shape[0]} places')
     max_area_mask = places_geodf['area'] < reg.max_place_area
     is_poi = places_geodf['area'] == 0
     relevant_bbox = max_area_mask & (~is_poi)
     cells_in_places = places_to_cells.get_intersect(
         reg.cells_geodf, places_geodf.loc[relevant_bbox]
     )
-    LOGGER.info(f'computed cells_in_places of size {cells_in_places.shape[0]}')
+    LOGGER.info(f'{reg.readable}: computed cells_in_places of size {cells_in_places.shape[0]}')
     return places_geodf, cells_in_places
 
 
 def get_dt_range_counts(
-    db, reg, pre_filter, start, end, bot_ids, places_geodf, cells_in_places, chunksize=1e6
+    db, reg, pre_filter, start, end, bot_ids, places_geodf, cells_in_places, num_cpus, chunksize=1e6
 ):
     filter = pre_filter.copy()
 
@@ -74,13 +74,16 @@ def get_dt_range_counts(
     chunk_filters = data_access.dt_chunk_filters_mongo(
         db, reg.mongo_coll, filter, start, end, chunksize=chunksize
     )
-    LOGGER.info(f'got chunks')
+    LOGGER.info(f'{reg.readable}: got chunks')
     # Moved this below chunk_filters computation because it dramatically slows down
-    # count_entries to add the bot filter.
+    # count_entries to add these filters.
     filter.none_of('user.id', bot_ids)
-
+    # Selected after looking at counts by source for 2015-2021 in the US, retains most
+    # of the tweets while excluding obvious bot accounts.
+    source_patt = '>Twitter |>Instagram|>Tweetbot'
+    filter.regex('source', source_patt)
     for i, chunk_f in enumerate(chunk_filters):
-        LOGGER.info(f'- started chunk {i}')
+        LOGGER.info(f'- {reg.readable}: started chunk {i}')
         tweets_filter = querier.Filter({**filter, **chunk_f})
         cell_counts_refs.append(remote_chunk_process.remote(
             db, reg.mongo_coll, tweets_filter, reg, places_geodf, cells_in_places, reg.lc
@@ -108,7 +111,7 @@ def get_dt_range_counts(
             LOGGER.info('waited')
 
     comb_list = cell_counts_refs + raw_cell_counts_ref
-    LOGGER.info(f"** combining for {start.date()} - {end.date()} **")
+    LOGGER.info(f"** {reg.readable}: combining for {start.date()} - {end.date()} **")
     raw_cell_counts_ref = parallel.fast_combine(word_counts.combine_cell_counts,
                                                 comb_list)
     raw_cell_counts = ray.get(raw_cell_counts_ref)[0]
@@ -138,7 +141,7 @@ def main(reg, num_cpus, years, res_fpath_format, **kwargs):
         bot_ids = data_access.get_bot_ids(
             db, reg.mongo_coll, first_tweets_filter, max_hourly_rate=10
         )
-        print(f'{len(bot_ids)} bots detected')
+        LOGGER.info(f'{len(bot_ids)} bots detected in {year}')
 
         if '{month}' in str(res_fpath_format):
             month_td = dateutil.relativedelta.relativedelta(months=1)
@@ -153,15 +156,17 @@ def main(reg, num_cpus, years, res_fpath_format, **kwargs):
             dt_ranges = [(start, end)]
 
         for start, end in dt_ranges:
+            LOGGER.info(f'** starting on {start.date()} - {end.date()} **')
             region_counts, raw_cell_counts = get_dt_range_counts(
                 db, reg, first_tweets_filter, start, end, bot_ids, places_geodf,
-                cells_in_places, chunksize=1e6
+                cells_in_places, num_cpus, chunksize=1e6
             )
 
             month = start.month
             save_path = Path(str(res_fpath_format).format(
                 kind='raw_cell_counts', year_from=year, year_to=year, year=year, month=month
             ))
+            save_path.parent.mkdir(exist_ok=True, parents=True)
             raw_cell_counts.to_parquet(save_path, index=True)
             save_path = Path(str(res_fpath_format).format(
                 kind='region_counts', year_from=year, year_to=year, year=year, month=month
@@ -200,7 +205,7 @@ if __name__ == '__main__':
             cnty_fpath, us_dict['shape_geodf'],
             xy_proj=countries_dict['US']['xy_proj'])
         us_dict['cell_size'] = 'county'
-    
+
     reg_dict = countries_dict[cc]
     filter_cell_counts_kwargs = {
     }
@@ -208,9 +213,9 @@ if __name__ == '__main__':
     _ = reg.get_shape_geodf(all_cntr_shapes=all_cntr_shapes)
     _ = reg.get_cells_geodf()
 
-    res_fpath_format = Path(str(paths.monthly_counts_files_fmt).format(
-        lc=lang, cc=cc, kind='{kind}', year='{year}',
-        month='{month}', cell_size=reg.cell_size
+    res_fpath_format = Path(str(paths.counts_files_fmt).format(
+        lc=lang, cc=cc, kind='{kind}', year_from='{year_from}',
+        year_to='{year_to}', cell_size=reg.cell_size
     ))
     years = range(year_from, year_to + 1)
     
