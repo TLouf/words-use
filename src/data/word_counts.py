@@ -260,8 +260,11 @@ def filter_cell_counts(raw_cell_counts, masks, sum_th=1e4,
 
 def filter_part_multidx(cell_counts, masks):
     '''
-    As it's a MultiIndexed frame, can't just .loc, satisfactorily fast solution
-    that I found is to use an inner join and keep only the original columns.
+    As it's a MultiIndexed frame, can't just .loc, satisfactorily fast solution that I
+    found is to use an inner join and keep only the original columns. Tested using
+    `.loc` or `.reindex`, but this inner join method turns out to be the fastest, by
+    far. `.reindex` is better in that it modifies the `.index.levels[i_lvl]` values
+    though, while the join does not.
     '''
     cols = cell_counts.columns
     filtered_counts = cell_counts.copy()
