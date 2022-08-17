@@ -456,7 +456,7 @@
     "SN": {
         "readable": "Senegal",
         "mongo_coll": "sub_saharan_africa",
-        "xy_proj": "EPSG:3414",
+        "xy_proj": "EPSG:31028",
         "max_place_area": 1e15,
         "cell_size": 1e9,
         "local_langs": ["fr"],
@@ -465,7 +465,7 @@
     "CI": {
         "readable": "Ivory Coast",
         "mongo_coll": "sub_saharan_africa",
-        "xy_proj": "EPSG:3414",
+        "xy_proj": "EPSG:2043",
         "max_place_area": 1e15,
         "cell_size": 1e9,
         "local_langs": ["fr"],
