@@ -23,11 +23,11 @@ def cloud(word_weights, figsize=None, save_path=None, dpi=300,
     cloud = wordcloud.WordCloud(**cloud_kwargs).generate_from_frequencies(dict(word_weights))
     _ = ax.imshow(cloud, interpolation='bilinear')
     ax.set_axis_off()
-    
+
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, bbox_inches='tight')
-        
+
     return fig, ax
 
 
@@ -37,6 +37,7 @@ def stem(word_weights, orientation='horizontal', figsize=None, save_path=None,
     if ax is None:
         fig, ax = plt.subplots(1, figsize=figsize)
     fig = ax.get_figure()
+
     y_pos = np.arange(len(word_weights))
     heads = word_weights.values
     s = ax.stem(y_pos, heads, orientation=orientation, basefmt='none')
@@ -48,5 +49,5 @@ def stem(word_weights, orientation='horizontal', figsize=None, save_path=None,
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, bbox_inches='tight')
-        
+
     return fig, ax
