@@ -522,7 +522,7 @@ class Language:
             kind=f'word_vectors_word_vec_var={self.word_vec_var}',
             **self_dict, ext='csv.gz')
         if Path(save_path).exists():
-            np.loadtxt(save_path, delimiter=',')
+            self.word_vectors = np.loadtxt(save_path, delimiter=',')
         else:
             print(f'word_vectors_word_vec_var={self.word_vec_var} is not saved')
         save_path = save_path_fmt.format(kind='relevant_cells',
