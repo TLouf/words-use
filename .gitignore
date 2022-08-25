@@ -78,6 +78,8 @@ target/
 data/**
 !data/external/
 !data/external/countries.json
+!data/external/FUNCTION_LIST.txt
+!data/external/INTERJ_LIST.txt
 
 # Mac OS-specific storage files
 .DS_Store
