@@ -5,6 +5,10 @@ channels:
 dependencies:
   - libpysal
   - esda
+  - pandas
+  - numexpr
+  - bottleneck
+  - pytables
   - fastparquet
   - geopandas
   - graph-tool
@@ -33,4 +37,5 @@ dependencies:
     - rectangle-packer
     - tqdm
     - wordcloud
+    - seaborn
     - -e ./
