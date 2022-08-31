@@ -136,21 +136,37 @@ class Region:
                     yearly_patt = (
                         str(files_fmt)
                         .format(kind=df_name, **reg_dict) # TODO: change 'old_' + 
-                        .replace(f'{self.year_from}-{self.year_to}',
-                                 '{year_from}-{year_to}')
                     )
-                    files_to_read = [
-                        Path(yearly_patt.format(year_from=y, year_to=y))
-                        for y in range(self.year_from, self.year_to + 1)
-                    ]
+                    whole_data_path = Path(
+                        yearly_patt.format(
+                            year_from=self.year_from, year_to=self.year_to
+                        )
+                    )
+                    # Possibility to have dataframe with 'year' as part of multiindex
+                    # giving counts for multiple years.
+                    if whole_data_path.exists():
+                        files_to_read = [whole_data_path]
+                    else:
+                        yearly_patt = yearly_patt.replace(
+                            f'{self.year_from}-{self.year_to}', '{year_from}-{year_to}'
+                        )
+                        files_to_read = [
+                            Path(yearly_patt.format(year_from=y, year_to=y))
+                            for y in range(self.year_from, self.year_to + 1)
+                        ]
 
                 pbar = tqdm(enumerate(files_to_read), total=len(files_to_read))
                 for i, f in pbar:
                     pbar.set_description(f.name)
+                    chunk = pd.read_parquet(f)
+                    index_levels = list(chunk.index.names)
+                    if 'year' in index_levels:
+                        index_levels.remove('year')
+                        chunk = chunk.groupby(index_levels).sum()
                     if i == 0:
-                        res = pd.read_parquet(f)
+                        res = chunk
                     else:
-                        res = res.add(pd.read_parquet(f), fill_value=0)
+                        res = res.add(chunk, fill_value=0)
 
                 setattr(self, df_name, res)
 
