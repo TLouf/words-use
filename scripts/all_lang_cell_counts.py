@@ -6,7 +6,7 @@ import logging.config
 import geopandas as geopd
 import src.data.us_specific as us_data
 import src.utils.paths as paths_utils
-from src.utils.dialects import Region 
+from src.dialects import Region
 from dotenv import load_dotenv
 load_dotenv()
 

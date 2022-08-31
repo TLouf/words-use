@@ -17,7 +17,7 @@ import src.utils.places_to_cells as places_to_cells
 import src.utils.parallel as parallel
 import src.utils.paths as paths_utils
 import src.data.word_counts as word_counts
-from src.utils.dialects import Region 
+from src.dialects import Region 
 from dotenv import load_dotenv
 load_dotenv()
 
