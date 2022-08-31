@@ -315,6 +315,12 @@ class Language:
         self._paths = p
 
 
+    def change_dt_range(self, date_from, date_to):
+        for o in [self] + self.regions:
+            o.year_from, o.month_from = date_from.year, date_from.month
+            o.year_to, o.month_to = date_to.year, date_to.month
+
+
     def to_pickle(self, save_path_fmt):
         self.cleanup(include_global=False)
         save_path = Path(str(save_path_fmt).format(**self.to_dict()))
