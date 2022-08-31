@@ -183,7 +183,6 @@ class Language:
     min_nr_cells: int = 10 # used in `filter_global_counts`
     upper_th: float = 0.4 # used when reading global_counts
     cell_tokens_th: float = 1e4 # used in `cell_is_relevant` and `make_cell_counts_mask`
-    cell_tokens_decade_crit: float = 2.
     word_tokens_th: float = 0 # used in `make_cell_counts_mask`
     smallest_cell_min_count: int = 0 # used in `make_cell_counts_mask`
     max_word_rank: int | None = None # used in `make_cell_counts_mask`
@@ -194,9 +193,7 @@ class Language:
     words_prior_mask: pd.Series | None = None
     cell_counts: pd.DataFrame | None = None
     word_counts_vectors: word_counts.WordCountsVectors | None = None
-    word_vec_var: str = ''
     word_vectors: word_counts.WordVectors | None = None
-    cdf_th: float = 0.99
     width_ratios: np.ndarray | None = None
     decompositions: list[data_clustering.Decomposition] = field(default_factory=list)
 
@@ -267,8 +264,8 @@ class Language:
 
     def data_file_fmt(self, save_dir, add_keys=None):
         add_keys = add_keys or []
-        keys = ['lc', 'str_cc', 'min_nr_cells', 'cell_tokens_decade_crit',
-                'cell_tokens_th', 'cdf_th'] + add_keys
+        keys = ['lc', 'str_cc', 'min_nr_cells',
+                'cell_tokens_th'] + add_keys
         params_str = '_'.join(
             [f'{key}={{{key}}}' for key in keys]
         )
@@ -279,8 +276,8 @@ class Language:
     def to_dict(self):
         # custom to_dict to keep only parameters that can be in save path
         list_attr = [
-            'lc', 'readable', 'str_cc', 'min_nr_cells', 'cell_tokens_decade_crit',
-            'cell_tokens_th', 'cdf_th', 'year_from', 'year_to', 'max_word_rank',
+            'lc', 'readable', 'str_cc', 'min_nr_cells',
+            'cell_tokens_th', 'year_from', 'year_to', 'max_word_rank',
             'upper_th', 'month_from', 'month_to', 'smallest_cell_min_count'
         ]
         return {attr: getattr(self, attr) for attr in list_attr}
@@ -548,12 +545,13 @@ class Language:
         word_counts_vectors = np.loadtxt(save_path, delimiter=',', dtype=int)
         self.word_counts_vectors = word_counts.WordCountsVector(array=word_counts_vectors)
         save_path = save_path_fmt.format(
-            kind=f'word_vectors_word_vec_var={self.word_vec_var}',
+            kind=f'word_vectors_word_vec_var={self.word_counts_vectors.word_vec_var}',
             **self_dict, ext='csv.gz')
         if Path(save_path).exists():
             self.word_vectors = np.loadtxt(save_path, delimiter=',')
         else:
-            print(f'word_vectors_word_vec_var={self.word_vec_var} is not saved')
+            print(f'word_vectors_word_vec_var={self.word_counts_vectors.word_vec_var}'
+                  ' is not saved')
         save_path = save_path_fmt.format(kind='relevant_cells',
                                          **self_dict, ext='csv.gz')
         self.relevant_cells = pd.Index(
@@ -803,7 +801,7 @@ class Language:
 
     def map_word(self, word, vcenter=0, vmin=None, vmax=None, cmap='bwr',
                  cbar_kwargs=None, **plot_kwargs):
-        cbar_label = f'{self.word_vectors.word_vec_var} of {word}'
+        cbar_label = f"{self.word_vectors.word_vec_var.split('(')[0]} of {word}"
         is_regional = self.global_counts['is_regional']
         word_idx = self.global_counts.loc[is_regional].index.get_loc(word)
         z_plot = self.word_vectors[:, word_idx]

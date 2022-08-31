@@ -226,26 +226,17 @@ def calc_first_word_masks(reg_counts, upper_th=1, min_nr_cells=0):
     return reg_counts
 
 
-def filter_cell_counts(raw_cell_counts, masks, sum_th=1e4,
-                       cell_tokens_decade_crit=None):
+def filter_cell_counts(raw_cell_counts, masks, sum_th=1e4):
     '''
     Filter out rows in cell counts based on multiple criteria. It first filters
     out words considered as proper nouns as they were capitalized more than
     `upper_th` of the time. It also filters out words found in less than
-    `min_nr_cells` cells. Finally, we sum the occurences of all words in every
-    cell to filter out cells `cell_tokens_decade_crit` decades below the
-    geometric average. The default values of the thresholds imply no filtering
-    at all.
+    `min_nr_cells` cells.
     '''
     total_nr_tokens = raw_cell_counts['count'].sum()
     cell_counts = filter_part_multidx(raw_cell_counts, masks)
 
     cell_sum = cell_counts.groupby('cell_id')['count'].sum()
-    if cell_tokens_decade_crit:
-        # For countries containing deserts like Australia, geometric mean can be
-        # very low, so take at least the default `sum_th`.
-        sum_th = max(10**(np.log10(cell_sum).mean() - cell_tokens_decade_crit),
-                     sum_th)
     cell_is_relevant = cell_sum > sum_th
     print(f'Keeping {cell_is_relevant.sum()} cells out of '
             f'{cell_is_relevant.shape[0]} with threshold {sum_th:.2e}')
