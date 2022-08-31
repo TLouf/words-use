@@ -785,12 +785,10 @@ class Language:
 
 
     def map_continuous_choro(
-        self, z_plot, normed_bboxes: bool | np.ndarray | None = None,
+        self, z_plot, normed_bboxes: bool | np.ndarray = True,
         total_width=178, total_height=None, axes=None, cax=None,
         cbar_kwargs=None, **choro_kwargs
     ):
-        if normed_bboxes is None:
-            normed_bboxes = len(self.regions) > 1
         if normed_bboxes is True:
             # calculate optimal position
             normed_bboxes, (total_width, total_height) = self.get_maps_pos(
