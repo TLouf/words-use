@@ -249,7 +249,7 @@ def places_from_mongo_tweets(db, colls: str | list, tweets_filter, add_fields=No
     return raw_places_gdf
 
 
-def tweets_from_mongo(db, filter, colls: str | list, add_cols=None):
+def tweets_from_mongo(db, filter, colls: str | list, add_cols=None, limit=-1):
     '''
     Return the DataFrame of tweets in the collections `colls` of the database
     `db` matching `filter`.
@@ -270,7 +270,7 @@ def tweets_from_mongo(db, filter, colls: str | list, add_cols=None):
         fields_to_extract.extend(d['field'])
 
     with qr.Connection(db) as con:
-        tweets = con[colls].extract(filter, fields=fields_to_extract)
+        tweets = con[colls].extract(filter, fields=fields_to_extract).limit(limit)
 
         assign_dict = {
             col: [f.split('.') for f in col_dict['field']]
@@ -331,6 +331,10 @@ def geo_within_filter(polygon_coords):
             }
         }
     }
+
+
+def gps_filter(f: qr.Filter):
+    return f.copy().exists('coordinates.coordinates')
 
 
 def get_all_types_mongo_id(id: int | str | bson.ObjectId):
