@@ -311,6 +311,9 @@ def calc_shape_dims(shape_df, latlon_proj='epsg:4326'):
     '''
     min_lon, min_lat, max_lon, max_lat = (
         shape_df.geometry.to_crs(latlon_proj).total_bounds)
+    return calc_bbox_dims(min_lon, min_lat, max_lon, max_lat)
+
+def calc_bbox_dims(min_lon, min_lat, max_lon, max_lat):
     # For a given longitude extent, the width is maximum the closer to the
     # equator, so the closer the latitude is to 0.
     eq_crossed = min_lat * max_lat < 0
