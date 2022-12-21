@@ -38,4 +38,6 @@ dependencies:
     - tqdm
     - wordcloud
     - seaborn
+    - gensim
+    - nltk
     - -e ./

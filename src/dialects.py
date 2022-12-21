@@ -1,29 +1,31 @@
 from __future__ import annotations
 
+import copy
+import datetime
+import inspect
 import json
 import pickle
-import inspect
-import copy
+from dataclasses import _FIELD, InitVar, asdict, dataclass, field
 from pathlib import Path
-from dataclasses import dataclass, field, InitVar, asdict, _FIELD
-import datetime
 
-from tqdm.auto import tqdm
+import geopandas as geopd
+import libpysal
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import geopandas as geopd
 import ray
+from nltk.stem.wordnet import WordNetLemmatizer
 from sklearn.decomposition import PCA
-import libpysal
+from tqdm.auto import tqdm
 
+import src.data.clustering as data_clustering
+import src.data.word_counts as word_counts
 import src.utils.geometry as geo
 import src.utils.parallel as parallel
 import src.utils.paths as paths_utils
 import src.visualization.maps as map_viz
 import src.visualization.words as word_viz
-import src.data.word_counts as word_counts
-import src.data.clustering as data_clustering
+
 
 @dataclass
 class Region:
@@ -203,6 +205,7 @@ class Language:
     word_tokens_th: float = 0 # used in `make_cell_counts_mask`
     smallest_cell_min_count: int = 0 # used in `make_cell_counts_mask`
     max_word_rank: int | None = None # used in `make_cell_counts_mask`
+    lemmatize: bool = False
     # Data containers (frames, arrays)
     cells_geodf: geopd.GeoDataFrame = field(init=False)
     global_counts: pd.DataFrame | None = None
@@ -355,7 +358,7 @@ class Language:
         return self.global_counts
 
 
-    def filter_global_counts(self, mask=None, invert=False, filter_col=None):
+    def filter_global_counts(self, mask=None, invert=False, update_max_word_rank=True):
         global_counts = self.get_global_counts()
 
         if mask is None:
@@ -375,19 +378,34 @@ class Language:
             # useful when wish to exclude words in an Index given by `mask`.
             words_mask = ~words_mask
 
-        # TODO: filter_col useful?
-        if filter_col is None:
-            self.words_prior_mask = words_mask
-            global_counts = global_counts.loc[self.words_prior_mask].copy()
-            if self.max_word_rank is not None:
-                self.max_word_rank = (
-                    words_mask.values
-                    & (words_mask.reset_index().index < self.max_word_rank)
+        if self.lemmatize:
+            if 'lemma' not in global_counts.columns:
+                lemmatizer = WordNetLemmatizer()
+                global_counts['lemma'] = [
+                    lemmatizer.lemmatize(token)
+                    for token in global_counts.index
+                ]
+            lemma_grouper = global_counts.groupby('lemma')
+            global_counts['lemma_count'] = lemma_grouper['count'].transform('sum')
+            lemmas_to_exclude = global_counts.loc[~words_mask, 'lemma'].unique()
+            words_mask = ~global_counts['lemma'].isin(lemmas_to_exclude)
+
+            if self.max_word_rank is not None and update_max_word_rank:
+                top_lemmas = lemma_grouper['lemma_count'].first().nlargest(self.max_word_rank)
+                min_count = top_lemmas.iloc[-1]
+                nr_lemmas_to_exclude_in_top = (
+                    global_counts.loc[~words_mask, 'lemma_count'] >= min_count
                 ).sum()
+                self.max_word_rank -= nr_lemmas_to_exclude_in_top
 
-        else:
-            global_counts[filter_col] = words_mask
+        elif self.max_word_rank is not None and update_max_word_rank:
+            self.max_word_rank = (
+                words_mask.values
+                & (words_mask.reset_index().index < self.max_word_rank)
+            ).sum()
 
+        global_counts = global_counts.loc[words_mask].copy()
+        self.words_prior_mask = words_mask
         self.global_counts = global_counts
         return global_counts
 
@@ -402,6 +420,12 @@ class Language:
         self.global_counts['cell_counts_mask'] = True
 
         if self.smallest_cell_min_count > 0:
+            # TODO: if lemmatize, this is broken
+            if self.lemmatize:
+                raise NotImplementedError(
+                    "The case where smallest_cell_min_count > 0 and lemmatize is True"
+                    " is not implemented"
+                )
             self.global_counts['cell_counts_mask'] = False
             raw_cell_counts = self.raw_cell_counts
             cell_sums = self.cell_sums
@@ -429,9 +453,26 @@ class Language:
         # These conditions are applied unconditionally because they're very cheap to
         # apply, and they don't do anything if parameters have their default values
         if self.max_word_rank is not None:
-            col = self.global_counts.columns.get_loc('cell_counts_mask')
-            self.global_counts.iloc[self.max_word_rank:, col] = False
-        word_tokens_mask = self.global_counts['count'] < self.word_tokens_th
+            if self.lemmatize:
+                lemma_mask = (
+                    self.global_counts.groupby('lemma')['lemma_count']
+                     .first()
+                     .rank(ascending=False, method='first')
+                    <= self.max_word_rank
+                )
+                self.global_counts = self.global_counts.join(lemma_mask.rename('lemma_mask'), on='lemma')
+                self.global_counts['cell_counts_mask'] = (
+                    self.global_counts['cell_counts_mask']
+                    & self.global_counts['lemma_mask']
+                )
+            else:
+                col = self.global_counts.columns.get_loc('cell_counts_mask')
+                self.global_counts.iloc[self.max_word_rank:, col] = False
+
+        count_col = 'count'
+        if self.lemmatize:
+            count_col = f'lemma_{count_col}'
+        word_tokens_mask = self.global_counts[count_col] < self.word_tokens_th
         self.global_counts.loc[word_tokens_mask, 'cell_counts_mask'] = False
 
         if mask is not None:
@@ -506,6 +547,14 @@ class Language:
     def relevant_cells(self):
         del self.cell_is_relevant
 
+    @property
+    def words_mask(self):
+        return self.global_counts['cell_counts_mask']
+
+    @property
+    def relevant_words(self):
+        return self.words_mask.loc[self.words_mask].index
+        
 
     def get_cell_counts(self):
         if self.cell_counts is None:
@@ -525,8 +574,17 @@ class Language:
             if 'cell_counts_mask' not in self.global_counts.columns:
                 self.make_cell_counts_mask()
             cell_counts = word_counts.filter_part_multidx(
-                cell_counts, [self.global_counts['cell_counts_mask']]
+                cell_counts, [self.words_mask]
             )
+            if self.lemmatize:
+                cell_counts = cell_counts.join(self.global_counts['lemma'])
+                cell_counts = cell_counts.groupby(['lemma', 'cell_id']).sum()
+                self.global_counts = (
+                    self.global_counts.groupby('lemma')
+                     .first()
+                     .drop(columns='count')
+                     .rename(columns={'lemma_count': 'count'})
+                )
 
             filtered_nr_tokens = cell_counts['count'].sum()
             total_nr_tokens = self.cell_sums.sum()
@@ -639,8 +697,7 @@ class Language:
             for key, value in m_dict.items():
                 moran_dict[key].extend(value)
         ray.shutdown()
-        cell_counts_mask = self.global_counts['cell_counts_mask']
-        words = self.global_counts.loc[cell_counts_mask].index[:num_morans]
+        words = self.global_counts.loc[self.words_mask].index[:num_morans]
         moran_df = pd.DataFrame.from_dict(moran_dict).set_index(words)
         self.global_counts = self.global_counts.join(moran_df)
         return self.global_counts
@@ -656,7 +713,7 @@ class Language:
 
 
     def make_decomposition(self, from_other: Language | None = None, **kwargs):
-        word_mask = self.global_counts['cell_counts_mask']
+        word_mask = self.words_mask
         word_vectors = self.word_vectors
         if from_other is None:
             pca = PCA(**kwargs).fit(word_vectors)
@@ -676,7 +733,7 @@ class Language:
             # recalculate everyhting or adapt/mask?
             other_decomp = from_other.decompositions[-1]
             pca = copy.deepcopy(other_decomp.decomposition)
-            other_word_mask = from_other.global_counts['cell_counts_mask'].rename('other_word_mask')
+            other_word_mask = from_other.words_mask.rename('other_word_mask')
             iloc = np.arange(word_mask.shape[0])
             joined_masks = (
                 other_word_mask.to_frame()
