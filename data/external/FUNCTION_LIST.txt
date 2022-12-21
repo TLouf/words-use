@@ -28,6 +28,7 @@ already
 also
 always
 am
+amp
 an
 and
 anit
