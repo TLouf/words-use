@@ -1,26 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict, InitVar, _FIELD
-from pathlib import Path
-from typing import Union, List, Optional, Callable
-from itertools import chain
 import os
 import re
 import subprocess
-import numpy as np
-import matplotlib.pyplot as plt
+from dataclasses import _FIELD, InitVar, asdict, dataclass, field
+from itertools import chain
+from pathlib import Path
+from typing import Callable, List, Optional, Union
+
+import esda
+import graph_tool.all as gt
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance
-import pandas as pd
-import esda
+from dotenv import load_dotenv
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
-import graph_tool.all as gt
+from sklearn.preprocessing import StandardScaler
+
 import src.data.word_counts as word_counts
-import src.visualization.maps as map_viz
 import src.visualization.eval as eval_viz
-from dotenv import load_dotenv
+import src.visualization.maps as map_viz
+
 load_dotenv()
 
 # Colorblind friendly from ggplot or seaborn's deep palette
@@ -42,18 +46,24 @@ def gen_oslom_res_path(data_path, oslom_opt_params=None, suffix=''):
     return oslom_res_path
 
 
-def gen_net_file_path(net_file_path_fmt, decomposition, metric, transfo=None):
+def gen_net_file_path(
+    net_file_path_fmt, decomposition: Decomposition, metric, transfo=None
+):
     if transfo is None:
         transfo_str = 'inverse'
     else:
         transfo_str = transfo.__name__
     # Remove parentheses for Oslom, couldn't make it parse file names with
     # parentheses correctly.
-    decomposition_str = str(decomposition).replace('(', '-').replace(')', '')
+    decomposition_str = str(decomposition.decomposition).replace('(', '-').replace(')', '')
     oslom_net_file_path = Path(
-        str(net_file_path_fmt).format(decomposition=decomposition_str,
-                                      metric=metric, transfo_str=transfo_str)
+        str(net_file_path_fmt).format(
+            word_vec_var=decomposition.word_vectors.word_vec_var,
+            decomposition=decomposition_str,
+            metric=metric,
+            transfo_str=transfo_str,
         )
+    )
     return oslom_net_file_path
 
 
@@ -123,9 +133,11 @@ def run_sbm(data_path, rec_types=None, nr_merge_split=10):
         rec_types = ["real-normal"]
     G = gt.graph_tool.load_graph_from_csv(
         str(data_path), strip_whitespace=False, csv_options={'delimiter': ' '},
-        eprop_names=['weight'], eprop_types=['float'],)
+        eprop_names=['weight'], eprop_types=['float'],
+    )
     state = gt.minimize_nested_blockmodel_dl(
-        G, state_args=dict(recs=[G.ep.weight], rec_types=rec_types))
+        G, state_args=dict(recs=[G.ep.weight], rec_types=rec_types)
+    )
     # L1 = state.entropy()
 
     # # improve solution with merge-split
@@ -691,12 +703,15 @@ class Decomposition:
 
     def save_net(self, metric, net_file_path_fmt, transfo=None):
         net_file_path = gen_net_file_path(
-            net_file_path_fmt, self.decomposition, metric, transfo=transfo)
+            net_file_path_fmt, self, metric, transfo=transfo)
         if transfo is None:
             transfo = lambda x: 1 / x
         dist_vec = scipy.spatial.distance.pdist(self.proj_vectors,
                                                 metric=metric)
-        sim_mat = scipy.spatial.distance.squareform(transfo(dist_vec))
+        sim_vec = transfo(dist_vec)
+        sim_mat = scipy.spatial.distance.squareform(
+            StandardScaler().fit_transform(sim_vec[:, np.newaxis]).T[0]
+        )
         edge_list = []
         nr_cells = self.proj_vectors.shape[0]
         for i in range(nr_cells):
@@ -814,7 +829,7 @@ class Decomposition:
     def add_oslom_hierarchy(self, metric, net_file_path_fmt, cells_ids,
                             transfo=None, oslom_opt_params=None):
         oslom_net_file_path = gen_net_file_path(
-            net_file_path_fmt, self.decomposition, metric, transfo=transfo)
+            net_file_path_fmt, self, metric, transfo=transfo)
         clustering = HierarchicalClustering.from_oslom_res(
             oslom_net_file_path, cells_ids, metric, transfo=transfo,
             oslom_opt_params=oslom_opt_params)
