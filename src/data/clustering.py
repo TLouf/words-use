@@ -29,7 +29,9 @@ load_dotenv()
 
 # Colorblind friendly from ggplot or seaborn's deep palette
 DEFAULT_CMAP = mcolors.ListedColormap([
-    '#4c72b0', '#dd8452', '#55a868', '#c44e52', '#8172b3', '#937860', '#da8bc3', '#ccb974', '#64b5cd'
+    # '#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377', '#BBBBBB'
+    '#4477AA', '#CCBB44', '#228833', '#EE6677', '#66CCEE', '#AA3377', '#BBBBBB' #TODO comment
+    # '#4c72b0', '#dd8452', '#55a868', '#c44e52', '#8172b3', '#937860', '#da8bc3', '#ccb974', '#64b5cd'
 ])
 OSLOM_DIR = Path(os.environ['OSLOM_DIR'])
 
@@ -44,27 +46,6 @@ def gen_oslom_res_path(data_path, oslom_opt_params=None, suffix=''):
     params_str = ''.join([s.replace(' ', '=') for s in oslom_opt_params])
     oslom_res_path = parent_path / f"res_{data_str}{params_str}{suffix}"
     return oslom_res_path
-
-
-def gen_net_file_path(
-    net_file_path_fmt, decomposition: Decomposition, metric, transfo=None
-):
-    if transfo is None:
-        transfo_str = 'inverse'
-    else:
-        transfo_str = transfo.__name__
-    # Remove parentheses for Oslom, couldn't make it parse file names with
-    # parentheses correctly.
-    decomposition_str = str(decomposition.decomposition).replace('(', '-').replace(')', '')
-    oslom_net_file_path = Path(
-        str(net_file_path_fmt).format(
-            word_vec_var=decomposition.word_vectors.word_vec_var,
-            decomposition=decomposition_str,
-            metric=metric,
-            transfo_str=transfo_str,
-        )
-    )
-    return oslom_net_file_path
 
 
 def run_oslom(oslom_dir, data_path, res_path=None, oslom_opt_params=None,
@@ -526,15 +507,19 @@ class HierarchicalClustering:
         '''
         method_repr = 'sbm'
         kwargs = {**sbm_kwargs, **{'transfo': sbm_kwargs['transfo'].__name__}}
-        kwargs_str = '_' + '_'.join([f'{key}={value}'
-                                     for key, value in kwargs.items()])
-        levels = state.get_bs()
+        kwargs_str = '_' + '_'.join(
+            [f'{key}={value}' for key, value in kwargs.items()]
+        )
+        levels = state.levels
         levels_dict = {}
-        cells_clusters = np.asarray(levels[0])
-        levels_dict[0] = cells_clusters.copy()
-        for l in range(1, len(levels)):
-            cells_clusters = np.asarray([levels[l][c] for c in cells_clusters])
-            levels_dict[l] = cells_clusters.copy()
+        for i_lvl in range(len(levels)):
+            projected_partition = state.project_level(i_lvl)
+            levels_dict[i_lvl] = np.asarray(
+                projected_partition.get_blocks().get_array()
+            ).copy()
+            if projected_partition.get_N() == 1:
+                break
+
         levels = [Clustering(lvl, cells_ids, method_repr, kwargs_str=kwargs_str)
                   for lvl in levels_dict.values()]
         return cls(levels, method_repr, kwargs_str=kwargs_str)
@@ -701,9 +686,29 @@ class Decomposition:
         return f'{self.__class__.__name__}({attr_str})'
 
 
+    def gen_net_file_path(self, net_file_path_fmt, metric, transfo=None):
+        if transfo is None:
+            transfo_str = 'inverse'
+        else:
+            transfo_str = transfo.__name__
+        # Remove parentheses for Oslom, couldn't make it parse file names with
+        # parentheses correctly.
+        decomposition_str = str(self.decomposition).replace('(', '-').replace(')', '')
+        oslom_net_file_path = Path(
+            str(net_file_path_fmt).format(
+                word_vec_var=self.word_vectors.word_vec_var,
+                decomposition=decomposition_str,
+                metric=metric,
+                transfo_str=transfo_str,
+            )
+        )
+        return oslom_net_file_path
+
+
     def save_net(self, metric, net_file_path_fmt, transfo=None):
-        net_file_path = gen_net_file_path(
-            net_file_path_fmt, self, metric, transfo=transfo)
+        net_file_path = self.gen_net_file_path(
+            net_file_path_fmt, metric, transfo=transfo
+        )
         if transfo is None:
             transfo = lambda x: 1 / x
         dist_vec = scipy.spatial.distance.pdist(self.proj_vectors,
@@ -724,6 +729,14 @@ class Decomposition:
                 ' '.join([str(x) for x in edge])
                 for edge in edge_list]))
         return net_file_path
+
+
+    def load_gt_graph(self, path):
+        G = gt.graph_tool.load_graph_from_csv(
+            str(path), strip_whitespace=False, csv_options={'delimiter': ' '},
+            eprop_names=['weight'], eprop_types=['float'],
+        )
+        return G
 
 
     def explained_var_plot(
@@ -828,8 +841,9 @@ class Decomposition:
 
     def add_oslom_hierarchy(self, metric, net_file_path_fmt, cells_ids,
                             transfo=None, oslom_opt_params=None):
-        oslom_net_file_path = gen_net_file_path(
-            net_file_path_fmt, self, metric, transfo=transfo)
+        oslom_net_file_path = self.gen_net_file_path(
+            net_file_path_fmt, metric, transfo=transfo
+        )
         clustering = HierarchicalClustering.from_oslom_res(
             oslom_net_file_path, cells_ids, metric, transfo=transfo,
             oslom_opt_params=oslom_opt_params)
@@ -839,7 +853,8 @@ class Decomposition:
 
     def add_sbm_hierarchy(self, state, cells_ids, **sbm_kwargs):
         clustering = HierarchicalClustering.from_sbm_res(
-            state, cells_ids, **sbm_kwargs)
+            state, cells_ids, **sbm_kwargs
+        )
         self.clusterings.append(clustering)
         return clustering
 
