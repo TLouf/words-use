@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import re
-import numpy as np
-import scipy.stats
-import scipy.sparse
-from numba import njit, prange
-import pandas as pd
+
 import geopandas as geopd
-from shapely.geometry import Point
 import libpysal
-from esda.getisord import G_Local
+import numpy as np
+import pandas as pd
 import ray
+import scipy.sparse
+import scipy.stats
+from esda.getisord import G_Local
+from numba import njit, prange
+from shapely.geometry import Point
+
 import src.data.text_process as text_process
-import src.utils.smooth as smooth
 import src.utils.parallel as parallel
+import src.utils.smooth as smooth
 
 
 def get_cell_of_pt_tweets(
@@ -65,7 +67,7 @@ def separate_pts_from_bboxes(tweets_df, cells_geodf, places_geodf, latlon_proj='
     is_point = has_gps | place_is_poi
 
     tweets_bbox_df = tweets_df.loc[~is_point].copy()
-    
+
     tweets_pts_df = tweets_df.loc[is_point].copy()
     tweets_pts_df['pt_is_gps'] = has_gps.loc[is_point]
     tweets_pts_df = get_cell_of_pt_tweets(
@@ -364,7 +366,7 @@ def disordered_sparse_series_to_coo(raw_series, i_index, j_index):
     print(f"{nr_missing_cells} cells were not found in cell_counts.")
     i_order = order_df.sort_values(by='cc_codes')['gc_codes'].values
     i = i_order[series.index.codes[series_iloc_i_level]]
-    
+
     lvl_j_index = series.index.names.index(j_index.name)
     series_j_level = series.index.levels[lvl_j_index]
     join_series = pd.Series(range(len(series_j_level)), index=series_j_level, name='cc_codes')
@@ -473,6 +475,7 @@ def vec_to_metric(word_counts_vectors, whole_reg_counts, word_vec_var='',
         word_vectors = diff / std
 
     elif 'tf-idf' in word_vec_var:
+        # TODO: broken at the moment, nr_cells not properly calculated
         total_nr_cells = reg_counts['nr_cells'].max()
         doc_freqs = (reg_counts['nr_cells'] / total_nr_cells).values
         if word_vec_var == 'smooth_tf-idf':
@@ -484,7 +487,7 @@ def vec_to_metric(word_counts_vectors, whole_reg_counts, word_vec_var='',
 
 
 _WORD_COUNTS_VEC_ATTR = [
-    'nr_tokens_bw', 'presence_th', 'max_word_rank',
+    'cell_sums', 'nr_tokens_bw', 'presence_th', 'max_word_rank',
     'smooth_wdist_fun', 'smooth_wdist_fun_kwargs'
 ]
 class WordCountsVectors(np.ndarray):
@@ -523,6 +526,21 @@ class WordCountsVectors(np.ndarray):
             setattr(self, attr, getattr(obj, attr, None))
         self.cell_sums = getattr(obj, 'cell_sums', None)
 
+    # Following to make it work fine with pickle
+    def __reduce__(self):
+        # Get the parent's __reduce__ tuple
+        pickled_state = super().__reduce__()
+        # Create our own tuple to pass to __setstate__
+        add_state = tuple([getattr(self, attr) for attr in _WORD_COUNTS_VEC_ATTR])
+        new_state = pickled_state[2] + add_state
+        # Return a tuple that replaces the parent's __setstate__ tuple with our own
+        return (pickled_state[0], pickled_state[1], new_state)
+
+    def __setstate__(self, state):
+        for i, attr in enumerate(_WORD_COUNTS_VEC_ATTR[::-1]):
+            setattr(self, attr, state[-i-1])
+        # Call the parent's __setstate__ with the other tuple elements.
+        super().__setstate__(state[0:-len(_WORD_COUNTS_VEC_ATTR)])
 
     def __str__(self):
         attrs_to_include = _WORD_COUNTS_VEC_ATTR
@@ -537,19 +555,14 @@ class WordCountsVectors(np.ndarray):
         cell_counts = lang.get_cell_counts()
         global_counts = lang.global_counts
         cell_sums = init_kwargs.get('cell_sums')
+        nr_tokens_bw = init_kwargs.get('nr_tokens_bw')
 
-        if init_kwargs.get('nr_tokens_bw') is not None:
-            cells_index = lang.relevant_cells
-            ordered_neighbors, nn_ordered_d = smooth.order_nn(
-                lang.cells_geodf.loc[cells_index]
-            )
-            nn_token_sums, nn_bw_mask = smooth.count_bw(
-                cell_counts, cells_index, ordered_neighbors, init_kwargs.get('nr_tokens_bw')
-            )
+        if nr_tokens_bw is not None:
             wdist_fun = init_kwargs.get('smooth_wdist_fun')
             wdist_fun_kwargs = init_kwargs.get('smooth_wdist_fun_kwargs', {})
-            nn_weights = smooth.calc_kernel_weights(
-                nn_ordered_d, nn_bw_mask, nn_token_sums,
+            cells_index = lang.relevant_cells
+            nn_weights, ordered_neighbors = smooth.get_nn_weights(
+                cell_counts, lang.cells_geodf.loc[cells_index], nr_tokens_bw,
                 wdist_fun=wdist_fun, **wdist_fun_kwargs
             )
             cell_counts_mat = smooth.get_smoothed_counts(
@@ -609,7 +622,6 @@ class WordCountsVectors(np.ndarray):
                 global_counts.loc[global_counts['cell_counts_mask']].index
             ).toarray()
 
-        
         if cell_sums is None:
             cell_sums = (
                 cell_counts.groupby('cell_id')['count']
@@ -661,6 +673,21 @@ class WordVectors(np.ndarray):
         for attr in _WORD_VEC_ATTR:
             setattr(self, attr, getattr(obj, attr, None))
 
+    # Following to make it work fine with pickle
+    def __reduce__(self):
+        # Get the parent's __reduce__ tuple
+        pickled_state = super().__reduce__()
+        # Create our own tuple to pass to __setstate__
+        add_state = tuple([getattr(self, attr) for attr in _WORD_VEC_ATTR])
+        new_state = pickled_state[2] + add_state
+        # Return a tuple that replaces the parent's __setstate__ tuple with our own
+        return (pickled_state[0], pickled_state[1], new_state)
+
+    def __setstate__(self, state):
+        for i, attr in enumerate(_WORD_VEC_ATTR[::-1]):
+            setattr(self, attr, state[-i-1])
+        # Call the parent's __setstate__ with the other tuple elements.
+        super().__setstate__(state[0:-len(_WORD_VEC_ATTR)])
 
     def __str__(self):
         attrs_to_include = ['word_vec_var']
@@ -683,10 +710,19 @@ class WordVectors(np.ndarray):
         if kwargs['word_vec_var'].startswith('Gi_star'):
             w_class = init_kwargs['spatial_weights_class']
             w_kwargs = init_kwargs.get('spatial_weights_kwargs', {})
-            w = w_class.from_dataframe(
-                lang.cells_geodf.loc[lang.relevant_cells], **w_kwargs
-            )
-            kwargs['w'] = libpysal.weights.fill_diagonal(w)
+            cells_geodf = lang.cells_geodf.loc[lang.relevant_cells].copy()
+            # If custom `libpysal.weights.W` subclass, add cell token sums to
+            # `cells_geodf`
+            if w_class.__module__.startswith('src'):
+                cells_geodf['raw_cell_sums'] = kwargs['cell_sums']
+                cells_geodf['cell_sums'] = word_counts_vectors.sum(axis=1)
+
+            w = w_class.from_dataframe(cells_geodf, **w_kwargs)
+
+            if w_class.__module__.startswith('libpysal'):
+                w = libpysal.weights.fill_diagonal(w)
+
+            kwargs['w'] = w
             kw_str = ', '.join(f'{key}={value}' for key, value in w_kwargs.items())
             init_kwargs['word_vec_var'] = f"Gi_star(w={w_class.__name__}({kw_str}))"
 

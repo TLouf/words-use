@@ -1,9 +1,11 @@
 import os
 import re
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from string import Formatter
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -67,9 +69,17 @@ class ProjectPaths:
     decomp_fig_fname_fmt: str = (
         'decomp_word_vec_var={word_vec_var}_component{component}.pdf'
     )
+    decomp_fmt: str = (
+        'decomp_word_vec_var={word_vec_var}_n_components={n_components}.pickle'
+    )
     net_fname_fmt: str = (
-        'net_metric={metric}_transfo={transfo_str}_word_vec_var={word_vec_var}'
-        '_decomposition={decomposition}.dat')
+        'net_metric={metric}_scaler={scaler}_transfo={transfo_str}_word_vec_var={word_vec_var}'
+        '_decomposition={decomposition}.dat'
+    )
+    sbm_state_fmt: str = (
+        'state_metric={metric}_scaler={scaler}_transfo={transfo}_rec_types={rec_types}_'
+        'word_vec_var={word_vec_var}_decomposition={decomposition}.pickle'
+    )
     source_fmt: Path = field(init=False)
     proj_data: Path = field(init=False)
     ext_data: Path = field(init=False)
@@ -94,6 +104,7 @@ class ProjectPaths:
         self.shp_file_fmt = self.ext_data / '{0}.shp' / '{0}.shp'
         self.figs = self.proj / 'reports' / 'figures'
         self.case_figs = self.figs / '{lc}' / '{str_cc}' / '{year_from}-{year_to}'
+        self.case_processed = self.processed_data / '{lc}' / '{str_cc}' / '{year_from}-{year_to}'
         self.cluster_fig_fmt = self.case_figs / self.cluster_fig_fname_fmt
         self.decomp_fig_fmt = self.case_figs / self.decomp_fig_fname_fmt
         self.net_fmt = self.processed_data / '{lc}' / '{str_cc}' / self.net_fname_fmt
@@ -105,6 +116,7 @@ class ProjectPaths:
             str(self.monthly_counts_files_fmt), **kwargs
         ))
         self.case_figs = Path(partial_format(str(self.case_figs), **kwargs))
+        self.case_processed = Path(partial_format(str(self.case_processed), **kwargs))
         self.cluster_fig_fmt = self.case_figs / self.cluster_fig_fname_fmt
         self.decomp_fig_fmt = self.case_figs / self.decomp_fig_fname_fmt
         self.net_fmt = Path(partial_format(str(self.net_fmt), **kwargs))

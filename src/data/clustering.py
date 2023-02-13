@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import pickle
 import re
 import subprocess
+from collections import defaultdict
 from dataclasses import _FIELD, InitVar, asdict, dataclass, field
 from itertools import chain
 from pathlib import Path
@@ -16,12 +18,14 @@ import numpy as np
 import pandas as pd
 import scipy.cluster.hierarchy as shc
 import scipy.spatial.distance
+import sklearn.preprocessing
 from dotenv import load_dotenv
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
-from sklearn.preprocessing import StandardScaler
 
 import src.data.word_counts as word_counts
+import src.utils.dist_to_sim as dist_to_sim
+import src.utils.paths as paths_utils
 import src.visualization.eval as eval_viz
 import src.visualization.maps as map_viz
 
@@ -48,7 +52,7 @@ def gen_oslom_res_path(data_path, oslom_opt_params=None, suffix=''):
     return oslom_res_path
 
 
-def run_oslom(oslom_dir, data_path, res_path=None, oslom_opt_params=None,
+def run_oslom(data_path, oslom_dir=OSLOM_DIR, res_path=None, oslom_opt_params=None,
               directional=False):
     '''
     Run the compiled OSLOM located in `oslom_dir` on the network data contained
@@ -109,7 +113,7 @@ def read_oslom_res(oslom_res_path):
     return cluster_dict
 
 
-def run_sbm(data_path, rec_types=None, nr_merge_split=10):
+def run_sbm(data_path, rec_types=None):
     if rec_types is None:
         rec_types = ["real-normal"]
     G = gt.graph_tool.load_graph_from_csv(
@@ -119,14 +123,8 @@ def run_sbm(data_path, rec_types=None, nr_merge_split=10):
     state = gt.minimize_nested_blockmodel_dl(
         G, state_args=dict(recs=[G.ep.weight], rec_types=rec_types)
     )
-    # L1 = state.entropy()
 
-    # # improve solution with merge-split
-    # impr_state = state.copy(bs=state.get_bs() + [np.zeros(1)] * 4, sampling=True)
-    # for _ in range(nr_merge_split):
-    #     _ = impr_state.multiflip_mcmc_sweep(niter=10, beta=np.inf)
-    # L2 = state.entropy()
-    # print(L2 - L1)
+    gt.mcmc_equilibrate(state, wait=1000, mcmc_args=dict(niter=10))
     return state
 
 
@@ -506,23 +504,26 @@ class HierarchicalClustering:
         From the output of `sbm_run`, state
         '''
         method_repr = 'sbm'
-        kwargs = {**sbm_kwargs, **{'transfo': sbm_kwargs['transfo'].__name__}}
         kwargs_str = '_' + '_'.join(
-            [f'{key}={value}' for key, value in kwargs.items()]
+            [f'{key}={value}' for key, value in sbm_kwargs.items()]
         )
         levels = state.levels
         levels_dict = {}
         for i_lvl in range(len(levels)):
             projected_partition = state.project_level(i_lvl)
-            levels_dict[i_lvl] = np.asarray(
-                projected_partition.get_blocks().get_array()
-            ).copy()
-            if projected_partition.get_N() == 1:
+            clust_labels = np.asarray(projected_partition.get_blocks().get_array())
+            _, normed_clust_labels = np.unique(clust_labels, return_inverse=True)
+            levels_dict[i_lvl] = normed_clust_labels
+            if levels[i_lvl].get_N() == 1:
                 break
 
-        levels = [Clustering(lvl, cells_ids, method_repr, kwargs_str=kwargs_str)
-                  for lvl in levels_dict.values()]
-        return cls(levels, method_repr, kwargs_str=kwargs_str)
+        levels = []
+        for lvl in levels_dict.values():
+            clust = Clustering(lvl, cells_ids, method_repr, kwargs_str=kwargs_str)
+            if len(levels) > 0 and clust.nr_clusters == levels[-1].nr_clusters:
+                break
+            levels.append(clust)
+        return cls(levels[::-1], method_repr, kwargs_str=kwargs_str)
 
 
     def get_clusters_agg(self):
@@ -655,6 +656,7 @@ class Decomposition:
     clusterings: List[Union[Clustering, HierarchicalClustering]] = field(
         default_factory=list
     )
+    save_path: Path = None
 
     def __post_init__(self):
         self.n_components = self.proj_vectors.shape[1]
@@ -662,6 +664,16 @@ class Decomposition:
         self.word_counts_vectors = self.word_counts_vectors[[0],[0]].copy()
         self.word_vectors = self.word_vectors[[0],[0]].copy()
 
+    @classmethod
+    def from_saved_file(cls, lang, word_vec_var, n_components):
+        decomp_save_path = (
+            lang.paths.case_processed
+            / lang.paths.decomp_fmt.format(
+                word_vec_var=word_vec_var, n_components=n_components
+            )
+        )
+        with open(decomp_save_path, "rb") as f:
+            return pickle.load(f)
 
     def __str__(self):
         self_dict = asdict(self)
@@ -686,7 +698,7 @@ class Decomposition:
         return f'{self.__class__.__name__}({attr_str})'
 
 
-    def gen_net_file_path(self, net_file_path_fmt, metric, transfo=None):
+    def gen_net_file_path(self, net_file_path_fmt, metric, transfo=None, scaler=None, rec_types=None):
         if transfo is None:
             transfo_str = 'inverse'
         else:
@@ -694,18 +706,19 @@ class Decomposition:
         # Remove parentheses for Oslom, couldn't make it parse file names with
         # parentheses correctly.
         decomposition_str = str(self.decomposition).replace('(', '-').replace(')', '')
-        oslom_net_file_path = Path(
+        net_file_path = Path(
             str(net_file_path_fmt).format(
                 word_vec_var=self.word_vectors.word_vec_var,
                 decomposition=decomposition_str,
                 metric=metric,
                 transfo_str=transfo_str,
+                scaler=scaler,
             )
         )
-        return oslom_net_file_path
+        return net_file_path
 
 
-    def save_net(self, metric, net_file_path_fmt, transfo=None):
+    def save_net(self, net_file_path_fmt, metric, transfo=None, scaler=None, rec_types=None):
         net_file_path = self.gen_net_file_path(
             net_file_path_fmt, metric, transfo=transfo
         )
@@ -714,9 +727,9 @@ class Decomposition:
         dist_vec = scipy.spatial.distance.pdist(self.proj_vectors,
                                                 metric=metric)
         sim_vec = transfo(dist_vec)
-        sim_mat = scipy.spatial.distance.squareform(
-            StandardScaler().fit_transform(sim_vec[:, np.newaxis]).T[0]
-        )
+        if scaler is not None:
+            sim_vec = scaler.fit_transform(sim_vec[:, np.newaxis]).T[0]
+        sim_mat = scipy.spatial.distance.squareform(sim_vec)
         edge_list = []
         nr_cells = self.proj_vectors.shape[0]
         for i in range(nr_cells):
@@ -739,8 +752,72 @@ class Decomposition:
         return G
 
 
+    def make_gt_graph(self, metric="euclidean", transfo=None, scaler=None, **kwargs):
+        if transfo is None:
+            transfo = lambda x: 1 / x
+        else:
+            transfo = getattr(dist_to_sim, transfo)
+        dist_vec = scipy.spatial.distance.pdist(self.proj_vectors, metric=metric)
+        sim_vec = transfo(dist_vec)
+        if scaler is not None:
+            scaler = getattr(sklearn.preprocessing, scaler)
+            sim_vec = scaler.fit_transform(sim_vec[:, np.newaxis]).T[0]
+        sim_mat = scipy.spatial.distance.squareform(sim_vec)
+        edge_list = []
+        nr_cells = self.proj_vectors.shape[0]
+        for i in range(nr_cells):
+            for j in range(i+1, nr_cells):
+                edge_list.append((i, j, sim_mat[i, j]))
+        g = gt.Graph(directed=False)
+        eweight = g.new_ep("double")
+        g.edge_properties["weight"] = eweight
+        g.add_edge_list(edge_list, eprops=[eweight])
+        return g
+
+    def run_sbm(
+        self, metric="euclidean", transfo=None, scaler=None, rec_types="real-normal",
+        **mcmc_equilibrate_kwargs
+    ):
+        if isinstance(rec_types, str):
+            rec_types = [rec_types] # .replace('_dash_', '-')
+
+        g = self.make_gt_graph(metric=metric, transfo=transfo, scaler=scaler)
+        state = gt.minimize_nested_blockmodel_dl(
+            g, state_args=dict(recs=[g.ep['weight']], rec_types=rec_types)
+        )
+
+        kwargs = {**{'wait': 1000, 'mcmc_args': {'niter': 10}},
+                  **mcmc_equilibrate_kwargs}
+        gt.mcmc_equilibrate(state, **kwargs)
+        return state
+
+    def get_sbm_save_path(self, **sbm_kwargs):
+        paths = paths_utils.ProjectPaths()
+        format_map = defaultdict(
+            lambda: None,
+            decomposition=self.decomposition,
+            word_vec_var=self.word_vectors.word_vec_var,
+            **sbm_kwargs,
+        )
+        state_save_path = (
+            Path(self.save_path).parent
+            / paths.sbm_state_fmt.format_map(format_map)
+        )
+        return state_save_path
+
+    def save_sbm_res(self, state, **sbm_kwargs):
+        state_save_path = self.get_sbm_save_path(**sbm_kwargs)
+        with open(state_save_path, "wb") as f:
+            pickle.dump(state, f)
+
+    def load_sbm_res(self, **sbm_kwargs):
+        state_save_path = self.get_sbm_save_path(**sbm_kwargs)
+        with open(state_save_path, "rb") as f:
+            state = pickle.load(f)
+        return state
+
     def explained_var_plot(
-        self, n_components=None, ax=None, lgd_kwargs=None, rasterized=False
+        self, n_components=None, ax=None, lgd_kwargs=None, rasterized=False, log_scale=True
     ):
         if lgd_kwargs is None:
             lgd_kwargs = {}
@@ -760,7 +837,8 @@ class Decomposition:
                   alpha=0.5, rasterized=rasterized)
         ax.set_xlabel('component rank')
         ax.set_ylabel('by component')
-        ax.set_yscale('log')
+        if log_scale:
+            ax.set_yscale('log')
         ax.set_title('proportion of variance explained')
 
         ax2 = ax.twinx()
@@ -835,8 +913,8 @@ class Decomposition:
 
 
     def prep_oslom(self, metric, net_file_path_fmt, transfo=None):
-        data_path = self.save_net(metric, net_file_path_fmt, transfo=transfo)
-        return OSLOM_DIR, data_path
+        data_path = self.save_net(net_file_path_fmt, metric, transfo=transfo)
+        return data_path
 
 
     def add_oslom_hierarchy(self, metric, net_file_path_fmt, cells_ids,
@@ -846,7 +924,8 @@ class Decomposition:
         )
         clustering = HierarchicalClustering.from_oslom_res(
             oslom_net_file_path, cells_ids, metric, transfo=transfo,
-            oslom_opt_params=oslom_opt_params)
+            oslom_opt_params=oslom_opt_params
+        )
         self.clusterings.append(clustering)
         return clustering
 

@@ -770,8 +770,15 @@ class Language:
             pca.mean_ = np.mean(word_vectors, axis=0)
 
         proj_vectors = pca.transform(word_vectors)
+        decomp_save_path = (
+            self.paths.case_processed
+            / self.paths.decomp_fmt.format(
+                word_vec_var=word_vectors.word_vec_var, n_components=proj_vectors.shape[1]
+            )
+        )
         decomposition = data_clustering.Decomposition(
             self.word_counts_vectors, word_vectors, pca, proj_vectors, word_mask,
+            save_path=decomp_save_path
         )
         self.decompositions.append(decomposition)
         return decomposition
