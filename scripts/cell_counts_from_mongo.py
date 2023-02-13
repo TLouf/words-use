@@ -1,24 +1,25 @@
-import sys
-import re
+import datetime
 import json
-from pathlib import Path
 import logging
 import logging.config
-import datetime
+import sys
+from pathlib import Path
+
 import dateutil
-import ray
 import geopandas as geopd
 import querier
+import ray
+from dotenv import load_dotenv
+
 import src.data.access as data_access
 import src.data.us_specific as us_data
-import src.utils.paths as paths_utils
+import src.data.word_counts as word_counts
 import src.utils.geometry as geo_utils
-import src.utils.places_to_cells as places_to_cells
 import src.utils.parallel as parallel
 import src.utils.paths as paths_utils
-import src.data.word_counts as word_counts
-from src.dialects import Region 
-from dotenv import load_dotenv
+import src.utils.places_to_cells as places_to_cells
+from src.dialects import Region
+
 load_dotenv()
 
 LOGGER = logging.getLogger(__name__)
