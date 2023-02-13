@@ -95,3 +95,4 @@ data/**
 *.sh
 
 reports/
+scripts/logs
