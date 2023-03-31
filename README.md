@@ -1,6 +1,9 @@
 words-use
 ==============================
 
+[![figshare](https://img.shields.io/badge/doi-10.6084%2Fm9.figshare.20627034-blue.svg?style=flat-square)](https://doi.org/10.6084/m9.figshare.20627034)
+[![article](https://img.shields.io/static/v1?label=article&message=10.1057%2Fs41599-023-01611-3&color=success&style=flat-square)](https://doi.org/10.1057/s41599-023-01611-3)
+
 Analysis of the frequency distributions of words, first in the US at a county-level aggregation.
 
 Project Organization
