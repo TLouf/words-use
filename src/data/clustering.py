@@ -629,12 +629,13 @@ class HierarchicalClustering:
         return fig, ax
 
 
-    def map_plot(self, *map_plot_args, fig=None, axes=None, **map_plot_kwargs):
+    def map_plot(self, geodf, shape_geodf, fig=None, axes=None, **map_plot_kwargs):
         if axes is None:
             fig, axes = plt.subplots(nrows=len(self.levels))
         for clustering, ax in zip(self.levels, axes):
             fig, ax = clustering.map_plot(
-                *map_plot_args, fig=fig, ax=ax, **map_plot_kwargs)
+                geodf, shape_geodf, fig=fig, ax=ax, **map_plot_kwargs
+            )
         return fig, axes
 
 
