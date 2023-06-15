@@ -58,31 +58,62 @@ def remote_fun(fun, sub_list, *fun_args, **fun_kwargs):
 def nured_run(
     script_fname,
     args,
-    time,
-    log_file=None,
+    allocated_time,
+    waiting_time=0,
+    executable=None,
+    custom_log_file=True,
     ssh_domain="nuredduna2020",
     username_key="IFISC_USERNAME",
     run_dir="scripts",
+    proj_dir=None,
 ):
-    ssh_username = os.environ[username_key]
-    paths = paths_utils.ProjectPaths()
-    run_from_dir = paths.proj / run_dir
-    venv_path = os.environ.get("CONDA_PREFIX", os.environ.get("VIRTUAL_ENV"))
-    python = Path(venv_path) / "bin" / "python"
+    if isinstance(args, str):
+        args = [args]
+
+    run_from_dir = Path(proj_dir or os.environ["PROJ_DIR"]) / run_dir
+
+    if executable is None:
+        # This assumes we're on the server.
+        venv_path = os.environ.get("CONDA_PREFIX", os.environ.get("VIRTUAL_ENV"))
+        executable = Path(venv_path) / "bin" / "python"
+
     sbatch_dir = "/common/slurm/bin"
     base_cmd = f"export PATH=$PATH:{sbatch_dir};cd {run_from_dir};"
+
     py_file_path = Path(script_fname)
-    if log_file is None:
+    if custom_log_file:
+        logs_dir = run_from_dir / 'logs'
+        logs_dir.mkdir(exist_ok=True)
         time_str = datetime.datetime.now().isoformat(timespec='milliseconds')
-        log_file = Path('logs') / f"{py_file_path.stem}_{time_str}.log"
-    cmd = (
-        f"/usr/local/bin/run -t {time} -o {log_file} -e {log_file} "
-        f'"{python} {py_file_path} {args}";'
-    )
-    print(cmd)
+        log_file_fmt = f"{py_file_path.stem}_{time_str}{{i}}{{type}}.log"
+    else:
+        log_str = ""
+
+    whole_cmd = base_cmd
+    for i, a in enumerate(args):
+        if custom_log_file:
+            iter_log_file = logs_dir / log_file_fmt.format(type="_out", i=i)
+            iter_err_log_file = logs_dir / log_file_fmt.format(type="_err", i=i)
+            log_str = f" -o {iter_log_file} -e {iter_err_log_file}"
+
+        whole_cmd += (
+            f"/usr/local/bin/run -t {allocated_time}{log_str}"
+            # Because this part below is enclosed in quotes, optional arguments can be
+            # used, otherwise they are interpreted as `run`'s optional arguments.
+            f' "{executable} {py_file_path} {a}";'
+        )
+
+        if waiting_time:
+            whole_cmd += f"sleep {waiting_time};"
+
+    print(whole_cmd)
+
+    # Get username fron environment variable in case it was not configured in
+    # `~/.ssh/.config`.
+    ssh_username = os.environ.get(username_key)
     with paramiko.client.SSHClient() as ssh_client:
         ssh_client.load_system_host_keys()
         ssh_client.connect(ssh_domain, username=ssh_username)
-        ssh_stdin, ssh_stdout, ssh_stderr = ssh_client.exec_command(base_cmd + cmd)
+        ssh_stdin, ssh_stdout, ssh_stderr = ssh_client.exec_command(whole_cmd)
         print(ssh_stderr.readlines())
         print(ssh_stdout.readlines())
