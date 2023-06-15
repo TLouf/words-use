@@ -122,7 +122,7 @@ def position_axes(width_ratios, total_width, total_height=None, ratio_lgd=None):
 
 
 def cluster_level(
-    level, regions, figsize=None, cmap=None, show_lgd=True,
+    level, regions, figsize=None, cmap=None, show_lgd=True, show_reg_name=True,
     save_path=None, show=True, fig=None, axes=None, **kwargs
 ):
     '''
@@ -153,7 +153,8 @@ def cluster_level(
         reg.shape_geodf.plot(
             ax=ax, color='none', edgecolor='black', linewidth=0.5,
         )
-        ax.set_title(reg.readable)
+        if show_reg_name:
+            ax.set_title(reg.readable)
         ax.set_axis_off()
 
     fig = ax.get_figure()
