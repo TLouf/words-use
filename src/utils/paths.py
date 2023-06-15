@@ -99,7 +99,7 @@ class ProjectPaths:
         self.raw_data = self.proj_data / 'raw'
         self.interim_data = self.proj_data / 'interim'
         self.processed_data = self.proj_data / 'processed'
-        self.counts_files_fmt = self.raw_data / '{lc}' / '{cc}' / self.counts_fname_fmt
+        self.countries_dict = self.ext_data / 'countries.json'
         self.monthly_counts_files_fmt = self.raw_data / '{lc}' / '{cc}' / self.monthly_counts_fname_fmt
         self.shp_file_fmt = self.ext_data / '{0}.shp' / '{0}.shp'
         self.figs = self.proj / 'reports' / 'figures'
