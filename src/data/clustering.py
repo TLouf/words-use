@@ -176,6 +176,7 @@ class Clustering:
     source_data: InitVar[Union[dict, np.ndarray]]
     cells_ids: InitVar[np.ndarray]
     method_repr: str
+    cell_dict: InitVar[dict] | None = None
     cmap: str | mcolors.Colormap | None = None
     method_obj: Optional[Callable] = None
     method_args: Optional[list] = None
@@ -187,8 +188,10 @@ class Clustering:
     kwargs_str: Optional[str] = None
     score: Optional[float] = None
 
-    def __post_init__(self, source_data, cells_ids):
-        self.cell_dict = self.get_cell_dict(source_data, cells_ids)
+    def __post_init__(self, source_data, cells_ids, cell_dict):
+        self.cell_dict = (
+            self.get_cell_dict(source_data, cells_ids) if cell_dict is None else cell_dict
+        )
         self.init_labels()
 
         if self.colors is None:
