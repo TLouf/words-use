@@ -1,5 +1,5 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import wordcloud
 
 
@@ -20,7 +20,9 @@ def cloud(word_weights, figsize=None, save_path=None, dpi=300,
         'background_color': 'white', 'scale': width/600, 'colormap': 'Dark2',
         'width': int(width), 'height': int(height), **kwargs
     }
-    cloud = wordcloud.WordCloud(**cloud_kwargs).generate_from_frequencies(dict(word_weights))
+
+    dict_weights = dict(word_weights.groupby(word_weights.index.name).first())
+    cloud = wordcloud.WordCloud(**cloud_kwargs).generate_from_frequencies(dict_weights)
     _ = ax.imshow(cloud, interpolation='bilinear')
     ax.set_axis_off()
 
