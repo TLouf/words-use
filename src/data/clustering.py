@@ -113,16 +113,24 @@ def read_oslom_res(oslom_res_path):
     return cluster_dict
 
 
-def run_sbm(data_path, rec_types=None):
+def run_sbm(data_path=None, g=None, rec_types=None, nested=False):
     if rec_types is None:
         rec_types = ["real-normal"]
-    G = gt.graph_tool.load_graph_from_csv(
-        str(data_path), strip_whitespace=False, csv_options={'delimiter': ' '},
-        eprop_names=['weight'], eprop_types=['float'],
-    )
-    state = gt.minimize_nested_blockmodel_dl(
-        G, state_args=dict(recs=[G.ep.weight], rec_types=rec_types)
-    )
+    elif isinstance(rec_types, str):
+        rec_types = [rec_types]
+    if g is None:
+        g = gt.graph_tool.load_graph_from_csv(
+            str(data_path), strip_whitespace=False, csv_options={'delimiter': ' '},
+            eprop_names=['weight'], eprop_types=['float'],
+        )
+    if nested:
+        state = gt.minimize_nested_blockmodel_dl(
+            g, state_args=dict(recs=[g.ep.weight], rec_types=rec_types)
+        )
+    else:
+        state = gt.minimize_blockmodel_dl(
+            g, state_args=dict(recs=[g.ep['weight']], rec_types=rec_types)
+        )
 
     gt.mcmc_equilibrate(state, wait=1000, mcmc_args=dict(niter=10))
     return state
@@ -791,15 +799,20 @@ class Decomposition:
 
     def run_sbm(
         self, metric="euclidean", transfo=None, scaler=None, rec_types="real-normal",
-        **mcmc_equilibrate_kwargs
+        nested=True, **mcmc_equilibrate_kwargs
     ):
         if isinstance(rec_types, str):
             rec_types = [rec_types] # .replace('_dash_', '-')
 
         g = self.make_gt_graph(metric=metric, transfo=transfo, scaler=scaler)
-        state = gt.minimize_nested_blockmodel_dl(
-            g, state_args=dict(recs=[g.ep['weight']], rec_types=rec_types)
-        )
+        if nested:
+            state = gt.minimize_nested_blockmodel_dl(
+                g, state_args=dict(recs=[g.ep['weight']], rec_types=rec_types)
+            )
+        else:
+            state = gt.minimize_blockmodel_dl(
+                g, state_args=dict(recs=[g.ep['weight']], rec_types=rec_types)
+            )
 
         kwargs = {**{'wait': 1000, 'mcmc_args': {'niter': 10}},
                   **mcmc_equilibrate_kwargs}
