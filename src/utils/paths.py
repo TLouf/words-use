@@ -78,7 +78,7 @@ class ProjectPaths:
     )
     sbm_state_fmt: str = (
         'state_metric={metric}_scaler={scaler}_transfo={transfo}_rec_types={rec_types}_'
-        'word_vec_var={word_vec_var}_decomposition={decomposition}.pickle'
+        + decomp_fmt
     )
     source_fmt: Path = field(init=False)
     proj_data: Path = field(init=False)

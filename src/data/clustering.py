@@ -811,6 +811,7 @@ class Decomposition:
         format_map = defaultdict(
             lambda: None,
             decomposition=self.decomposition,
+            n_components=self.n_components,
             word_vec_var=self.word_vectors.word_vec_var,
             **sbm_kwargs,
         )
