@@ -131,7 +131,7 @@ def cluster_level(
     no information is available on their belonging to a cluster.
     '''
     if axes is None:
-        fig, axes = plt.subplots(len(regions), figsize=figsize)
+        fig, axes = plt.subplots(len(regions), figsize=figsize, **kwargs.get('fig_kwargs', {}))
 
     if len(regions) == 1:
         axes = (axes,)
