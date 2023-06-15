@@ -425,6 +425,11 @@ class HierarchicalClustering:
             # not implemented for other methods
             self.attr_lvl_colors(cmap=self.cmap)
 
+    def __iter__(self):
+        return iter(self.levels)
+
+    def __getitem__(self, i):
+        return self.levels[i]
 
     def __str__(self):
         self_dict = asdict(self)
@@ -446,6 +451,8 @@ class HierarchicalClustering:
         attr_str = ', '.join(attr_str_components)
         return f'{self.__class__.__name__}({attr_str})'
 
+    def print_summary(self):
+        print(" || ".join(f"{i}: {lvl.nr_clusters}" for i, lvl in enumerate(self)))
 
     @classmethod
     def from_scipy_agglo(cls, vectors, cells_ids, max_n_clusters=None, cmap=None,
