@@ -763,7 +763,7 @@ class Decomposition:
         return G
 
 
-    def make_gt_graph(self, metric="euclidean", transfo=None, scaler=None, **kwargs):
+    def get_sim_matrix(self,  metric="euclidean", transfo=None, scaler=None):
         if transfo is None:
             transfo = lambda x: 1 / x
         else:
@@ -774,6 +774,10 @@ class Decomposition:
             scaler = getattr(sklearn.preprocessing, scaler)
             sim_vec = scaler.fit_transform(sim_vec[:, np.newaxis]).T[0]
         sim_mat = scipy.spatial.distance.squareform(sim_vec)
+        return sim_mat
+
+    def make_gt_graph(self, metric="euclidean", transfo=None, scaler=None, **kwargs):
+        sim_mat = self.get_sim_matrix(metric=metric, transfo=transfo, scaler=scaler)
         edge_list = []
         nr_cells = self.proj_vectors.shape[0]
         for i in range(nr_cells):
