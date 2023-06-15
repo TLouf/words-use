@@ -6,22 +6,23 @@ strings refers to a column. Cannot use Modin or Dask because of gzip
 compression, Parquet data files would be ideal.
 '''
 from __future__ import annotations
+
+import bz2
+import datetime
+import gzip
+import logging
+import zipfile
 from functools import reduce
 from math import ceil
-import datetime
-import zipfile
-import gzip
-import bz2
 from pathlib import Path
-import logging
-from tqdm import tqdm
-import pandas as pd
-import geopandas as geopd
+
 import bson
+import geopandas as geopd
+import pandas as pd
 import querier as qr
+from tqdm import tqdm
 
 import src.utils.geometry as geo_utils
-
 
 LOGGER = logging.getLogger(__name__)
 
