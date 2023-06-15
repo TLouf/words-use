@@ -1,13 +1,13 @@
 import colorsys
-import numpy as np
+
 import matplotlib
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
-import matplotlib.lines as mlines
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 import rpack
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 import src.utils.geometry as geo
 
 
