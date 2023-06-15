@@ -241,7 +241,8 @@ class Clustering:
         if isinstance(source_data, np.ndarray):
             cell_dict = {
                 cell_id: [clust]
-                for cell_id, clust in zip(cells_ids, source_data)}
+                for cell_id, clust in zip(cells_ids, source_data)
+            }
         elif isinstance(source_data, dict):
             if len(source_data) == len(cells_ids):
                 cell_dict = dict(zip(cells_ids, source_data.values()))
@@ -841,6 +842,7 @@ class Decomposition:
 
     def load_sbm_res(self, **sbm_kwargs):
         state_save_path = self.get_sbm_save_path(**sbm_kwargs)
+        print(f"- loading {state_save_path}")
         with open(state_save_path, "rb") as f:
             state = pickle.load(f)
         return state

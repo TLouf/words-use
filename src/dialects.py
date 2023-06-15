@@ -99,7 +99,8 @@ class Region:
             self.shape_geodf = all_cntr_shapes.loc[mask]
             self.shape_geodf = geo.extract_shape(
                 self.shape_geodf, self.cc, xy_proj=self.xy_proj,
-                bbox=self.shape_bbox, simplify_tol=simplify_tol)
+                bbox=self.shape_bbox, simplify_tol=simplify_tol
+            )
         return self.shape_geodf
 
 
@@ -138,7 +139,7 @@ class Region:
                 else:
                     yearly_patt = (
                         str(files_fmt)
-                        .format(kind=df_name, **reg_dict) # TODO: change 'old_' + 
+                        .format(kind=df_name, **reg_dict) 
                     )
                     whole_data_path = Path(
                         yearly_patt.format(
@@ -278,8 +279,7 @@ class Language:
         ]
         return cls(lc, readable, list_cc, regions, all_cntr_shapes,
                    year_from=year_from, year_to=year_to,
-                   month_from=month_from, month_to=month_to, **kwargs
-        )
+                   month_from=month_from, month_to=month_to, **kwargs)
 
 
     def data_file_fmt(self, save_dir, add_keys=None):
@@ -877,7 +877,7 @@ class Language:
         )
 
         # if normed_bboxes set to False, don't position the axes
-        if not normed_bboxes is False:
+        if normed_bboxes is not False:
             for ax, bbox in zip(np.append(axes, cax), normed_bboxes):
                 ax.set_position(bbox)
 
