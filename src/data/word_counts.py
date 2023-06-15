@@ -524,7 +524,6 @@ class WordCountsVectors(np.ndarray):
         if obj is None: return
         for attr in _WORD_COUNTS_VEC_ATTR:
             setattr(self, attr, getattr(obj, attr, None))
-        self.cell_sums = getattr(obj, 'cell_sums', None)
 
     # Following to make it work fine with pickle
     def __reduce__(self):
